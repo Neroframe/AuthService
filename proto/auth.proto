@@ -1,0 +1,9 @@
+
+
+
+
+
+service AuthService {
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc GetUserByID(UserIDRequest) returns (UserResponse);
+}
