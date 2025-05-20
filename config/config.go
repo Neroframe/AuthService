@@ -8,8 +8,8 @@ import (
 
 type (
 	Config struct {
-		Version string
-		Server  Server
+		Version string `env:"APP_VERSION" envDefault:"1.0.0"`
+		Server  Server `envPrefix:"GRPC_"`
 		Mongo   Mongo
 		Nats    Nats
 		Redis   Redis
@@ -17,16 +17,53 @@ type (
 		Log     Log
 	}
 
+	// ------------ Server (gRPC) ------------
 	Server struct {
-		gRPCServer gRPCServer
-		// HTTPServer?
-	}
-	gRPCServer struct {
+		Addr string `env:"ADDRESS,notEmpty"`
+
+		CertFile string
+		KeyFile  string
+
+		KeepaliveEnforcement struct {
+			MinTime             time.Duration `env:"MIN_TIME" envDefault:"5s"`
+			PermitWithoutStream bool          `env:"PERMIT_WITHOUT_STREAM" envDefault:"true"`
+		}
+
+		KeepaliveParams struct {
+			MaxConnectionAge      time.Duration `env:"MAX_CONNECTION_AGE" envDefault:"30s"`
+			MaxConnectionAgeGrace time.Duration `env:"MAX_CONNECTION_AGE_GRACE" envDefault:"10s"`
+			MaxRecvMsgSizeMiB     int           `env:"MAX_MESSAGE_SIZE_MIB" envDefault:"12"`
+		}
 	}
 
+	// ------------ Mongo ------------
+	Mongo struct {
+		Database       string        `env:"MONGO_DATABASE,notEmpty"`
+		URI            string        `env:"MONGO_URI,notEmpty"`
+		Username       string        `env:"MONGO_USER"`
+		Password       string        `env:"MONGO_PASS"`
+		ConnectTimeout time.Duration `env:"MONGO_CONN_TIMEOUT" envDefault:"3s"`
+		SocketTimeout  time.Duration `env:"MONGO_SOCKET_TIMEOUT" envDefault:"3s"`
+		MaxPoolSize    uint64        `env:"MONGO_MAX_POOL" envDefault:"100"`
+		MinPoolSize    uint64        `env:"MONGO_MIN_POOL"`
+		ReplicaSet     string        `env:"MONGO_REPLICA_SET"`
+	}
+
+	// ------------ NATS ------------
 	Nats struct {
+		Hosts         []string      `env:"NATS_HOSTS,notEmpty" envSeparator:","`
+		Name          string        `env:"NATS_NAME" envDefault:"AuthService-NATS-Client"`
+		MaxReconnects int           `env:"NATS_MAX_RECONNECTS"`
+		ReconnectWait time.Duration `env:"NATS_RECONNECT_WAIT"`
+		NatsSubjects  NatsSubjects
 	}
 
+	NatsSubjects struct {
+		UserRegistered string
+		UserLoggedIn   string
+	}
+
+	// ------------ Redis ------------
 	Redis struct {
 		Addr         string        `env:"REDIS_ADDR" envDefault:"localhost:6379"`
 		Password     string        `env:"REDIS_PASSWORD"`
@@ -37,18 +74,20 @@ type (
 		TLSEnable    bool          `env:"REDIS_TLS_ENABLE" envDefault:"false"`
 	}
 
+	// ------------ JWT ------------
 	JWT struct {
 		Secret     string        `env:"JWT_SECRET"`     // HMAC signing key
 		Expiration time.Duration `env:"JWT_EXPIRATION"` // token ttl
 	}
 
+	// ------------ Log ------------
 	Log struct {
 		Level  string `env:"LOG_LEVEL" envDefault:"info"`  // "debug", "info", "warn", "error"
 		Format string `env:"LOG_FORMAT" envDefault:"text"` // "text" or "json"
 	}
 )
 
-func NewCfg() (*Config, error) {
+func New() (*Config, error) {
 	var cfg Config
 	err := env.Parse(&cfg)
 

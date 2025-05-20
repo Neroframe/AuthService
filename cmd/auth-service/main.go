@@ -1,6 +1,52 @@
-package authservice
-//            • load config  
-// │           • init logger  
-// │           • connect to Mongo, Redis, NATS  
-// │           • wire up adapters → usecases → handlers  
-// │           • start gRPC server
+package main
+
+import (
+	"context"
+	stdlog "log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/Neroframe/AuthService/config"
+	"github.com/Neroframe/AuthService/internal/app"
+	"github.com/Neroframe/AuthService/pkg/logger"
+	"github.com/joho/godotenv"
+)
+
+func main() {
+	if err := godotenv.Load(".env"); err != nil {
+		println("No .env file found, falling back to real env")
+	}
+
+	cfg, err := config.New()
+	if err != nil {
+		stdlog.Fatalf("config load error: %v", err)
+	}
+
+	// logger
+	log := logger.New(logger.Config(cfg.Log))
+	log.Info("config loaded", "version", cfg.Version)
+
+	// Build the app
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	app, err := app.New(ctx, cfg, log)
+	if err != nil {
+		log.Fatal("app init failed", "err", err)
+	}
+
+	// Run the app
+	if err := app.Run(ctx); err != nil {
+		log.Error("app terminated with error", "err", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := app.Shutdown(shutdownCtx); err != nil {
+		log.Error("error during shutdown", "err", err)
+	}
+
+	log.Info("Authentification service stopped")
+}

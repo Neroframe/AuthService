@@ -10,7 +10,11 @@ type Config struct {
 	Format string
 }
 
-func New(cfg Config) *slog.Logger {
+type Logger struct {
+	*slog.Logger
+}
+
+func New(cfg Config) *Logger {
 	var lvl slog.Level
 	switch cfg.Level {
 	case "debug":
@@ -35,5 +39,14 @@ func New(cfg Config) *slog.Logger {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	}
 
-	return slog.New(handler)
+	// set global default logger
+	root := slog.New(handler)
+	slog.SetDefault(root)
+
+	return &Logger{root}
+}
+
+func (l *Logger) Fatal(msg string, args ...any) {
+	l.Error(msg, args...)
+	os.Exit(1)
 }

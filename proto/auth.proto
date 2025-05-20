@@ -1,9 +1,63 @@
+syntax = "proto3";
 
+package auth;
 
+option go_package = "github.com/Neroframe/AuthService/proto;authpb";
 
-
+enum Role {
+    UNSPECIFIED = 0;
+    ADMIN = 1;
+    TEACHER = 2;
+    STUDENT = 3;
+}
 
 service AuthService {
-  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
-  rpc GetUserByID(UserIDRequest) returns (UserResponse);
+    rpc Login(LoginRequest) returns (LoginResponse);
+    rpc Register(RegisterRequest) returns (RegisterResponse); 
+    rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+    rpc GetUserByID(GetUserByIDRequest) returns (GetUserByIDResponse);
+}
+
+message LoginRequest {
+    string email = 1;
+    string password = 2;
+}
+
+message LoginResponse {
+    string access_token = 1;
+    string refresh_token = 2;
+    int64 expires_at = 3; // Unix timestamp
+    string token_type = 4; // e.g. "Bearer"
+}
+
+message RegisterRequest {
+    string email = 1;
+    string password = 2;
+}
+
+message RegisterResponse {
+    bool success = 1;
+    string message = 2;
+    string access_token = 3;
+}
+
+message ValidateTokenRequest {
+    string jwt = 1; 
+}
+
+message ValidateTokenResponse {
+    bool valid = 1;
+    string user_id = 2;
+    Role role = 3;
+    int64 expires_at = 4; // Unix timestamp
+}
+
+message GetUserByIDRequest {
+    string user_id = 1;
+}
+
+message GetUserByIDResponse {
+    string userID = 1;
+    string email = 2;
+    string role = 3;
 }
