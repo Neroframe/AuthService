@@ -15,6 +15,6 @@ func NewAuthPublisher(c *nats.Client) *AuthPublisher {
 	return &AuthPublisher{conn: c}
 }
 
-func (p *AuthPublisher) PublishUserRegistered(ctx context.Context, evt domain.UserRegisteredEvent) error {
+func (p *AuthPublisher) PublishUserRegistered(ctx context.Context, evt *domain.UserRegisteredEvent) error {
 	return p.conn.PublishJSON("user.registered", evt)
 }

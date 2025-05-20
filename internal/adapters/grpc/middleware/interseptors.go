@@ -41,6 +41,7 @@ func (i *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 			return handler(ctx, req)
 		}
 
+		// Extract token
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
 			return nil, status.Error(codes.Unauthenticated, "missing metadata")
@@ -51,13 +52,20 @@ func (i *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "authorization header not supplied")
 		}
 
-		token := strings.TrimSpace(strings.TrimPrefix(authHeaders[0], "Bearer"))
+		token := strings.TrimSpace(strings.TrimPrefix(authHeaders[0], "Bearer ")) // token...
 		claims, err := i.jwtService.Validate(ctx, token)
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
-		// Inject claims into context for gprc handlers
+		// Validate token
+		// payload, err := uc.ValidateToken(ctx, token)
+		// if err != nil || !payload.Valid {
+		// 	log.Warn("authInterceptor: invalid token", "err", err)
+		// 	return nil, status.Error(codes.Unauthenticated, "invalid token")
+		// }
+
+		// Inject user info into context for gprc handlers
 		ctx = context.WithValue(ctx, UserCtxKey, &domain.TokenPayload{
 			UserID:    claims.UserID,
 			Email:     claims.Email,

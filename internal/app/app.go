@@ -65,7 +65,10 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	}
 
 	// Adapters
-	repo := mongoadapter.NewUserRepository(mongoClient.DB)
+	repo, err := mongoadapter.NewUserRepository(ctx, mongoClient.DB)
+	if err != nil {
+		return nil, fmt.Errorf("mongo repo init: %w", err)
+	}
 	publisher := natsadapter.NewAuthPublisher(natsClient)
 	redisCache := redisadapter.NewUserCache(redisClient.Client, cfg.Redis.DialTimeout)
 
@@ -74,13 +77,13 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	authInt := middleware.NewAuthInterceptor(jwtSvc, []string{
 		"/auth.AuthService/Login",
 		"/auth.AuthService/Register",
-		"/health.Health/Check", // TODO
+		"/auth.AuthService/ValidateToken",
 	})
 	hasher := bcrypt.NewHasher()
 
 	// Usecase and gRPC handler
-	userUC := usecase.NewUserUsecase(repo, hasher, publisher, redisCache)
-	authHandler := grpcadapter.NewHandler(userUC, log)
+	userUC := usecase.NewUserUsecase(repo, hasher, publisher, redisCache, log, jwtSvc)
+	authHandler := grpcadapter.NewHandler(userUC, log, jwtSvc)
 
 	srv, err := grpcpkg.New(
 		grpcpkg.Config(cfg.Server),

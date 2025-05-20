@@ -34,7 +34,7 @@ func (s *service) Validate(ctx context.Context, tokenStr string) (*domain.TokenP
 
 	return &domain.TokenPayload{
 		UserID:    claims["sub"].(string),
-		Role:      claims["role"].(domain.Role),
+		Role:      domain.Role(claims["role"].(string)),
 		ExpiresAt: int64(claims["exp"].(float64)),
 	}, nil
 }

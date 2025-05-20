@@ -19,7 +19,7 @@ type TokenPayload struct {
 	UserID    string
 	Email     string
 	Role      Role
-	ExpiresAt int64 // Unix timestamp
+	ExpiresAt int64 // Unix
 }
 
 // CreateAccessToken(user *domain.User, secret string, expiry int)

@@ -2,13 +2,18 @@ package domain
 
 import (
 	"context"
+	"errors"
+	"time"
 )
 
+var ErrEmailAlreadyExists = errors.New("email already exists")
+
 type User struct {
-	ID       string
-	Email    string
-	Password string
-	Role     Role
+	ID        string    `bson:"_id"`
+	Email     string    `bson:"email"`
+	Password  string    `bson:"password"`
+	Role      Role      `bson:"role"`
+	CreatedAt time.Time `bson:"created_at"`
 }
 
 type Role string
@@ -30,11 +35,11 @@ func (r Role) IsValid() bool {
 }
 
 type UserRepository interface {
-	// Create(ctx context.Context, u *User) error
-	// FindByEmail(ctx context.Context, email string) (*User, error)
-	// FindByID(ctx context.Context, id string) (*User, error)
-	// Update(ctx context.Context, u *User) error
-	// Delete(ctx context.Context, id string) error
+	Create(ctx context.Context, u *User) error
+	FindByEmail(ctx context.Context, email string) (*User, error)
+	FindByID(ctx context.Context, id string) (*User, error)
+	Update(ctx context.Context, u *User) error
+	Delete(ctx context.Context, id string) error
 }
 
 type UserCache interface {

@@ -197,6 +197,7 @@ type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
 	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	Role          Role                   `protobuf:"varint,3,opt,name=role,proto3,enum=auth.Role" json:"role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -243,6 +244,13 @@ func (x *RegisterRequest) GetPassword() string {
 		return x.Password
 	}
 	return ""
+}
+
+func (x *RegisterRequest) GetRole() Role {
+	if x != nil {
+		return x.Role
+	}
+	return Role_UNSPECIFIED
 }
 
 type RegisterResponse struct {
@@ -536,10 +544,12 @@ const file_auth_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x03 \x01(\x03R\texpiresAt\x12\x1d\n" +
 	"\n" +
-	"token_type\x18\x04 \x01(\tR\ttokenType\"C\n" +
+	"token_type\x18\x04 \x01(\tR\ttokenType\"c\n" +
 	"\x0fRegisterRequest\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1a\n" +
-	"\bpassword\x18\x02 \x01(\tR\bpassword\"i\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x1e\n" +
+	"\x04role\x18\x03 \x01(\x0e2\n" +
+	".auth.RoleR\x04role\"i\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12!\n" +
@@ -596,20 +606,21 @@ var file_auth_proto_goTypes = []any{
 	(*GetUserByIDResponse)(nil),   // 8: auth.GetUserByIDResponse
 }
 var file_auth_proto_depIdxs = []int32{
-	0, // 0: auth.ValidateTokenResponse.role:type_name -> auth.Role
-	1, // 1: auth.AuthService.Login:input_type -> auth.LoginRequest
-	3, // 2: auth.AuthService.Register:input_type -> auth.RegisterRequest
-	5, // 3: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
-	7, // 4: auth.AuthService.GetUserByID:input_type -> auth.GetUserByIDRequest
-	2, // 5: auth.AuthService.Login:output_type -> auth.LoginResponse
-	4, // 6: auth.AuthService.Register:output_type -> auth.RegisterResponse
-	6, // 7: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
-	8, // 8: auth.AuthService.GetUserByID:output_type -> auth.GetUserByIDResponse
-	5, // [5:9] is the sub-list for method output_type
-	1, // [1:5] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 0: auth.RegisterRequest.role:type_name -> auth.Role
+	0, // 1: auth.ValidateTokenResponse.role:type_name -> auth.Role
+	1, // 2: auth.AuthService.Login:input_type -> auth.LoginRequest
+	3, // 3: auth.AuthService.Register:input_type -> auth.RegisterRequest
+	5, // 4: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
+	7, // 5: auth.AuthService.GetUserByID:input_type -> auth.GetUserByIDRequest
+	2, // 6: auth.AuthService.Login:output_type -> auth.LoginResponse
+	4, // 7: auth.AuthService.Register:output_type -> auth.RegisterResponse
+	6, // 8: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
+	8, // 9: auth.AuthService.GetUserByID:output_type -> auth.GetUserByIDResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_auth_proto_init() }
