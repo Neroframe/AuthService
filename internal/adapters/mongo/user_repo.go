@@ -3,7 +3,6 @@ package mongo
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/Neroframe/AuthService/internal/domain"
@@ -44,7 +43,7 @@ func (r *UserRepository) Create(ctx context.Context, u *domain.User) error {
 		if mongo.IsDuplicateKeyError(err) {
 			return domain.ErrEmailAlreadyExists
 		}
-		return fmt.Errorf("repo.Create: %w", err)
+		return err
 	}
 
 	return nil
@@ -56,9 +55,9 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*domain
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&u)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
+			return nil, domain.ErrUserNotFound
 		}
-		return nil, fmt.Errorf("findByEmail: %w", err)
+		return nil, err
 	}
 
 	return &u, nil
@@ -70,19 +69,42 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*domain.User,
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&u)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, nil
+			return nil, domain.ErrUserNotFound
 		}
-		return nil, fmt.Errorf("finByID: %w", err)
+		return nil, err
 	}
 
-	return nil, nil
+	// fmt.Printf("USER FOUND %s %s", u.ID, u.Email)
+	return &u, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, u *domain.User) error {
-	return nil
+func (r *UserRepository) Update(ctx context.Context, u *domain.User, fields ...string) (*domain.User, error) {
+	filter := bson.M{"_id": u.ID}
+	update := buildUpdateFields(u, fields...)
+
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	var updated domain.User
+
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updated)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, domain.ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &updated, nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
+	res, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		return err
+	}
+
+	if res.DeletedCount == 0 {
+		return domain.ErrUserNotFound
+	}
+
 	return nil
 }
 
@@ -94,4 +116,23 @@ func ensureUserIndexes(ctx context.Context, col *mongo.Collection) error {
 
 	_, err := col.Indexes().CreateOne(ctx, index)
 	return err
+}
+
+func buildUpdateFields(u *domain.User, allowedFields ...string) bson.M {
+	set := bson.M{}
+	for _, field := range allowedFields {
+		switch field {
+		case "username":
+			set["username"] = u.Username
+		case "phone":
+			set["phone"] = u.Phone
+		case "password":
+			set["password"] = u.Password
+		case "email":
+			set["email"] = u.Email
+		case "updated_at":
+			set["updated_at"] = u.UpdatedAt
+		}
+	}
+	return bson.M{"$set": set}
 }

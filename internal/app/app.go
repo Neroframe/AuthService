@@ -74,39 +74,49 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	publisher := natsadapter.NewAuthPublisher(natsClient)
 	redisCache := redisadapter.NewUserCache(redisClient.Client, cfg.Redis.DialTimeout)
 
-	// jwtService and hasher
+	// jwt and bcrypt helper services
 	jwtSvc := token.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiration)
 	hasher := bcrypt.NewHasher()
 
-	// Usecase and gRPC handler/middleware
+	// Usecase
 	userUC := usecase.NewUserUsecase(repo, hasher, publisher, redisCache, log, jwtSvc)
-	authHandler := grpcadapter.NewHandler(userUC, log, jwtSvc)
+
+	// gRPC client and clientConn (remove)
 	authClient, authConn, err := grpcadapter.NewAuthClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("grpc AuthClient init: %w", err)
 	}
 
+	// gRPC interceptor that uses client
+	// it validates token and injects user info
 	authInt := middleware.NewAuthInterceptor(
+		// public routes
 		[]string{
 			"/auth.AuthService/Login",
 			"/auth.AuthService/Register",
-			"/auth.AuthService/ValidateToken"},
+			"/auth.AuthService/ValidateToken",
+			// "/auth.AuthService/GetUserByID" - admin only route
+		},
 		authClient,
+		jwtSvc,
 	)
 
+	// gRPC server setup
+	authHandler := grpcadapter.NewHandler(userUC, log) // handler implements server logic
 	srv, err := grpcpkg.New(
 		grpcpkg.Config(cfg.Server),
 		func(s *grpc.Server) {
-			authpb.RegisterAuthServiceServer(s, authHandler)
+			authpb.RegisterAuthServiceServer(s, authHandler) // register AuthService in a gRPC server
 		},
 		[]grpc.UnaryServerInterceptor{
 			authInt.Unary(),
 		},
 	)
 	if err != nil {
-		redisClient.Close()
-		natsClient.Disconnect()
 		mongoClient.Disconnect(ctx)
+		natsClient.Disconnect()
+		redisClient.Close()
+		authConn.Close()
 		return nil, fmt.Errorf("grpc server init: %w", err)
 	}
 

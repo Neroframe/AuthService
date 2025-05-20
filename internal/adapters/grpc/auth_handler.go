@@ -16,11 +16,10 @@ type AuthHandler struct {
 	authpb.UnimplementedAuthServiceServer
 	uc  usecase.UserUsecase
 	log *logger.Logger
-	jwt domain.JWTService
 }
 
-func NewHandler(uc usecase.UserUsecase, log *logger.Logger, jwt domain.JWTService) *AuthHandler {
-	return &AuthHandler{uc: uc, log: log, jwt: jwt}
+func NewHandler(uc usecase.UserUsecase, log *logger.Logger) *AuthHandler {
+	return &AuthHandler{uc: uc, log: log}
 }
 
 func (h *AuthHandler) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
@@ -50,6 +49,8 @@ func (h *AuthHandler) Register(ctx context.Context, req *authpb.RegisterRequest)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid role")
 	}
+
+	h.log.Info("role converted", "email", req.Email, "role", role)
 
 	usr, err := h.uc.Register(ctx, req.Email, req.Password, role)
 	if err != nil {
@@ -82,22 +83,6 @@ func (h *AuthHandler) ValidateToken(ctx context.Context, req *authpb.ValidateTok
 		UserId:    payload.UserID,
 		Role:      convertRole(payload.Role), // map domain.Role to authpb.Role
 		ExpiresAt: payload.ExpiresAt,
-	}, nil
-}
-
-func (h *AuthHandler) GetUserByID(ctx context.Context, req *authpb.GetUserByIDRequest) (*authpb.GetUserByIDResponse, error) {
-	h.log.Info("GetUserByID called", "id", req.UserId)
-
-	usr, err := h.uc.GetUserByID(ctx, req.UserId)
-	if err != nil {
-		h.log.Error("failed to find by ID", "err", err)
-		return nil, status.Error(codes.NotFound, "failed to find by ID")
-	}
-
-	return &authpb.GetUserByIDResponse{
-		UserID: usr.ID,
-		Email:  usr.Email,
-		Role:   string(usr.Role),
 	}, nil
 }
 

@@ -18,7 +18,6 @@ type userUsecase struct {
 	jwt       domain.JWTService
 }
 
-
 func NewUserUsecase(r domain.UserRepository,
 	h domain.PasswordHasher,
 	p domain.UserEventPublisher,
@@ -45,7 +44,7 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 		return nil, err
 	}
 
-	// Set redis cacher
+	// Save to redis
 	// if err := u.cache.Set(ctx, u); err != nil {
 	// 	u.log.Warn("cache set failed", "err", err)
 	// }
@@ -80,7 +79,7 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (access
 		return "", nil, fmt.Errorf("invalid credentials")
 	}
 
-	token, exp, err := u.jwt.Generate(user.ID, user.Role)
+	token, iat, exp, err := u.jwt.Generate(user.ID, user.Role)
 	if err != nil {
 		u.log.Warn("jwt.generate failed", "err", err)
 		return "", nil, fmt.Errorf("failed to generate token")
@@ -92,6 +91,7 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (access
 		UserID:    user.ID,
 		Email:     user.Email,
 		Role:      user.Role,
+		IssuedAt:  iat,
 		ExpiresAt: exp,
 	}, nil
 }
@@ -103,24 +103,15 @@ func (u *userUsecase) ValidateToken(ctx context.Context, jwt string) (*domain.To
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
-	// MongoDB or redis
-	// ok, err := u.repo.Exists(ctx, payload.UserID, jwt)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("session check failed: %w", err)
-	// }
-	// if !ok {
-	// 	return nil, fmt.Errorf("token revoked or session expired")
-	// }
-
 	return payload, nil
 }
 
-func (u *userUsecase) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
-	user, err := u.repo.FindByID(ctx, userID)
-	if err != nil {
-		u.log.Warn("user not found", "id", userID)
-		return nil, fmt.Errorf("user not found: %w", err)
-	}
+func (u *userUsecase) SendVerificationCode(ctx context.Context, email string) error {
 
-	return user, nil
+	return nil
+
+}
+func (u *userUsecase) VerifyAccount(ctx context.Context, email string, code string) error {
+
+	return nil
 }

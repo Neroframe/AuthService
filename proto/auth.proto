@@ -14,10 +14,25 @@ enum Role {
 service AuthService {
     rpc Login(LoginRequest) returns (LoginResponse);
     rpc Register(RegisterRequest) returns (RegisterResponse); 
+
+    // Token validation
     rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+    //  User management 
     rpc GetUserByID(GetUserByIDRequest) returns (GetUserByIDResponse);
+    rpc UpdateUserProfile(UpdateUserRequest) returns (UpdateUserResponse);
+
+    // Account verification
+    rpc SendVerificationCode(VerificationCodeRequest) returns (VerificationCodeResponse);
+    rpc VerifyAccount(VerifyAccountRequest) returns (VerifyAccountResponse);
+
+    // Password management
+    rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse); // auth
+    rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse); // unauth
+    rpc ConfirmResetPassword(ConfirmResetRequest) returns (ConfirmResetResponse); // code confirmation 
 }
 
+// Authentification
 message LoginRequest {
     string email = 1;
     string password = 2;
@@ -39,7 +54,7 @@ message RegisterRequest {
 message RegisterResponse {
     bool success = 1;
     string message = 2;
-    string access_token = 3;
+    string access_token = 3; // TODO? 
 }
 
 message ValidateTokenRequest {
@@ -53,12 +68,87 @@ message ValidateTokenResponse {
     int64 expires_at = 4; // Unix timestamp
 }
 
+// User management 
+message User {
+  string user_id = 1;
+  string email   = 2;
+  string username = 3;
+  string password = 4;
+  Role   role    = 5;
+  string phone   = 6;
+}
+
 message GetUserByIDRequest {
     string user_id = 1;
 }
 
 message GetUserByIDResponse {
-    string userID = 1;
-    string email = 2;
-    string role = 3;
+    bool success = 1;
+    string message = 2;
+    User user = 3;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  string email = 2;
+  string username  = 3;
+  string phone = 4;
+}
+
+message UpdateUserResponse {
+  bool   success = 1;
+  string message = 2;
+  User   user    = 3;  // updated user
+}
+
+// Account verification 
+message VerificationCodeRequest {
+  string email = 1;
+}
+
+message VerificationCodeResponse {
+  bool   success = 1;
+  string message = 2;  // e.g. "code sent"
+}
+
+message VerifyAccountRequest {
+  string email = 1;
+  string code  = 2;
+}
+
+message VerifyAccountResponse {
+  bool   success = 1;
+  string message = 2;  // e.g. "account verified"
+}
+
+// Password management 
+message ChangePasswordRequest {
+  string user_id      = 1;
+  string old_password = 2;
+  string new_password = 3;
+}
+
+message ChangePasswordResponse {
+  bool   success = 1;
+  string message = 2;  // e.g. "password changed"
+}
+
+message ResetPasswordRequest {
+  string email = 1;
+}
+
+message ResetPasswordResponse {
+  bool   success = 1;
+  string message = 2;  // e.g. "reset code sent"
+}
+
+message ConfirmResetRequest {
+  string email        = 1;
+  string code         = 2;
+  string new_password = 3;
+}
+
+message ConfirmResetResponse {
+  bool   success = 1;
+  string message = 2;  // e.g. "password reset"
 }

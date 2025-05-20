@@ -39,23 +39,24 @@ func (s *service) Validate(ctx context.Context, tokenStr string) (*domain.TokenP
 	}, nil
 }
 
-func (s *service) Generate(userID string, role domain.Role) (string, int64, error) {
-	now := time.Now()
-	exp := now.Add(s.accessTTL)
+func (s *service) Generate(userID string, role domain.Role) (string, time.Time, int64, error) {
+	exp := time.Now().Add(s.accessTTL).Unix()
+	iat := time.Now().UTC()
 
 	claims := jwt.MapClaims{
 		"sub":  userID,
 		"role": role,
-		"exp":  exp.Unix(),
-		"iat":  now.Unix(),
+		"exp":  exp,
+		"iat":  iat,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(s.secretKey))
 	if err != nil {
-		return "", 0, err
+		return "", time.Time{}, 0, err
 	}
-	return signed, exp.Unix(), nil
+	
+	return signed, iat, exp, nil
 }
 
 func validatePayload(claims jwt.MapClaims) error {

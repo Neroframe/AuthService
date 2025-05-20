@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/Neroframe/AuthService/internal/domain"
 	authpb "github.com/Neroframe/AuthService/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -16,10 +18,11 @@ const UserCtxKey string = "userClaims"
 type AuthInterceptor struct {
 	skipMethods map[string]struct{}
 	authClient  authpb.AuthServiceClient
+	jwtSvc      domain.JWTService
 }
 
 // skipMethods is a slice of RPC method names to bypass (e.g. Login, Register)
-func NewAuthInterceptor(skipMethods []string, client authpb.AuthServiceClient) *AuthInterceptor {
+func NewAuthInterceptor(skipMethods []string, client authpb.AuthServiceClient, jwt domain.JWTService) *AuthInterceptor {
 	sm := make(map[string]struct{}, len(skipMethods))
 	for _, m := range skipMethods {
 		sm[m] = struct{}{}
@@ -27,6 +30,7 @@ func NewAuthInterceptor(skipMethods []string, client authpb.AuthServiceClient) *
 	return &AuthInterceptor{
 		skipMethods: sm,
 		authClient:  client,
+		jwtSvc:      jwt,
 	}
 }
 
@@ -56,14 +60,16 @@ func (i *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 		token := strings.TrimSpace(strings.TrimPrefix(authHeaders[0], "Bearer "))
 
 		// Validate token
-		resp, err := i.authClient.ValidateToken(ctx, &authpb.ValidateTokenRequest{Jwt: token})
-		if err != nil || !resp.Valid {
+		claims, err := i.jwtSvc.Validate(ctx, token)
+		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
-		// Inject the proto response
-		ctx = context.WithValue(ctx, UserCtxKey, resp)
-
+		// Inject the proto response for user info
+		ctx = context.WithValue(ctx, UserCtxKey, claims)
+		fmt.Println("AUTH SUCCESS")
 		return handler(ctx, req)
 	}
 }
+
+// Audit logging, rate limiting
