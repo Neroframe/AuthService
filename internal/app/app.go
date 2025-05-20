@@ -32,7 +32,9 @@ type App struct {
 	nats  *natspkg.Client
 	redis *redispkg.Client
 
-	grpc *grpcpkg.Server
+	grpc       *grpcpkg.Server
+	authClient authpb.AuthServiceClient
+	authConn   *grpc.ClientConn
 }
 
 func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, error) {
@@ -72,18 +74,25 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	publisher := natsadapter.NewAuthPublisher(natsClient)
 	redisCache := redisadapter.NewUserCache(redisClient.Client, cfg.Redis.DialTimeout)
 
-	// jwtService, gRPC middleware and hasher
+	// jwtService and hasher
 	jwtSvc := token.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiration)
-	authInt := middleware.NewAuthInterceptor(jwtSvc, []string{
-		"/auth.AuthService/Login",
-		"/auth.AuthService/Register",
-		"/auth.AuthService/ValidateToken",
-	})
 	hasher := bcrypt.NewHasher()
 
-	// Usecase and gRPC handler
+	// Usecase and gRPC handler/middleware
 	userUC := usecase.NewUserUsecase(repo, hasher, publisher, redisCache, log, jwtSvc)
 	authHandler := grpcadapter.NewHandler(userUC, log, jwtSvc)
+	authClient, authConn, err := grpcadapter.NewAuthClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("grpc AuthClient init: %w", err)
+	}
+
+	authInt := middleware.NewAuthInterceptor(
+		[]string{
+			"/auth.AuthService/Login",
+			"/auth.AuthService/Register",
+			"/auth.AuthService/ValidateToken"},
+		authClient,
+	)
 
 	srv, err := grpcpkg.New(
 		grpcpkg.Config(cfg.Server),
@@ -102,12 +111,14 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	}
 
 	return &App{
-		cfg:   cfg,
-		log:   log,
-		mongo: mongoClient,
-		nats:  natsClient,
-		redis: redisClient,
-		grpc:  srv,
+		cfg:        cfg,
+		log:        log,
+		mongo:      mongoClient,
+		nats:       natsClient,
+		redis:      redisClient,
+		grpc:       srv,
+		authClient: authClient,
+		authConn:   authConn,
 	}, nil
 }
 
@@ -145,6 +156,12 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 	a.log.Info("shutting down gRPC")
 	a.grpc.Stop()
+
+	a.log.Info("closing AuthService gRPC connection")
+	if err := a.authConn.Close(); err != nil {
+		a.log.Error("failed to close authConn", "err", err)
+		shutdownErr = err
+	}
 
 	a.log.Info("disconnecting NATS")
 	a.nats.Disconnect()

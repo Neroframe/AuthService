@@ -62,7 +62,7 @@ func (h *AuthHandler) Register(ctx context.Context, req *authpb.RegisterRequest)
 	return &authpb.RegisterResponse{
 		Success:     true,
 		Message:     "User Registered",
-		AccessToken: "", // TODO
+		AccessToken: "", // TODO ?
 	}, nil
 }
 
@@ -109,8 +109,6 @@ func convertRole(r domain.Role) authpb.Role {
 		return authpb.Role_TEACHER
 	case domain.STUDENT:
 		return authpb.Role_STUDENT
-	case domain.UNSPECIFIED:
-		fallthrough
 	default:
 		return authpb.Role_UNSPECIFIED
 	}
@@ -124,8 +122,6 @@ func convertProtoRole(r authpb.Role) (domain.Role, error) {
 		return domain.TEACHER, nil
 	case authpb.Role_STUDENT:
 		return domain.STUDENT, nil
-	case authpb.Role_UNSPECIFIED:
-		return domain.UNSPECIFIED, nil
 	default:
 		return domain.UNSPECIFIED, fmt.Errorf("unknown proto Role: %v", r)
 	}

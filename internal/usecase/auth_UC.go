@@ -18,6 +18,7 @@ type userUsecase struct {
 	jwt       domain.JWTService
 }
 
+
 func NewUserUsecase(r domain.UserRepository,
 	h domain.PasswordHasher,
 	p domain.UserEventPublisher,

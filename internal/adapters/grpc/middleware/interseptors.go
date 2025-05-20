@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Neroframe/AuthService/internal/domain"
+	authpb "github.com/Neroframe/AuthService/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -14,19 +14,19 @@ import (
 const UserCtxKey string = "userClaims"
 
 type AuthInterceptor struct {
-	jwtService  domain.JWTService
 	skipMethods map[string]struct{}
+	authClient  authpb.AuthServiceClient
 }
 
 // skipMethods is a slice of RPC method names to bypass (e.g. Login, Register)
-func NewAuthInterceptor(jwtSvc domain.JWTService, skipMethods []string) *AuthInterceptor {
+func NewAuthInterceptor(skipMethods []string, client authpb.AuthServiceClient) *AuthInterceptor {
 	sm := make(map[string]struct{}, len(skipMethods))
 	for _, m := range skipMethods {
 		sm[m] = struct{}{}
 	}
 	return &AuthInterceptor{
-		jwtService:  jwtSvc,
 		skipMethods: sm,
+		authClient:  client,
 	}
 }
 
@@ -37,6 +37,7 @@ func (i *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (any, error) {
+		// Skip public methods
 		if _, ok := i.skipMethods[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
@@ -52,26 +53,16 @@ func (i *AuthInterceptor) Unary() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "authorization header not supplied")
 		}
 
-		token := strings.TrimSpace(strings.TrimPrefix(authHeaders[0], "Bearer ")) // token...
-		claims, err := i.jwtService.Validate(ctx, token)
-		if err != nil {
+		token := strings.TrimSpace(strings.TrimPrefix(authHeaders[0], "Bearer "))
+
+		// Validate token
+		resp, err := i.authClient.ValidateToken(ctx, &authpb.ValidateTokenRequest{Jwt: token})
+		if err != nil || !resp.Valid {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
-		// Validate token
-		// payload, err := uc.ValidateToken(ctx, token)
-		// if err != nil || !payload.Valid {
-		// 	log.Warn("authInterceptor: invalid token", "err", err)
-		// 	return nil, status.Error(codes.Unauthenticated, "invalid token")
-		// }
-
-		// Inject user info into context for gprc handlers
-		ctx = context.WithValue(ctx, UserCtxKey, &domain.TokenPayload{
-			UserID:    claims.UserID,
-			Email:     claims.Email,
-			Role:      claims.Role,
-			ExpiresAt: claims.ExpiresAt,
-		})
+		// Inject the proto response
+		ctx = context.WithValue(ctx, UserCtxKey, resp)
 
 		return handler(ctx, req)
 	}
