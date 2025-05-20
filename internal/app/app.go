@@ -36,7 +36,7 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, error) {
-	log.Info("initializing infra clients...")
+	log.Info("initializing infra clients")
 
 	// MongoDB
 	mongoClient, err := mongopkg.NewClient(ctx, mongopkg.Config(cfg.Mongo))
@@ -74,7 +74,7 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	authInt := middleware.NewAuthInterceptor(jwtSvc, []string{
 		"/auth.AuthService/Login",
 		"/auth.AuthService/Register",
-		"/health.Health/Check",
+		"/health.Health/Check", // TODO
 	})
 	hasher := bcrypt.NewHasher()
 
@@ -109,6 +109,7 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 }
 
 func (a *App) Run(ctx context.Context) error {
+	// Share one ctx (error group)
 	g, ctx := errgroup.WithContext(ctx)
 
 	// gRPC
@@ -132,18 +133,33 @@ func (a *App) Run(ctx context.Context) error {
 		return healthLoop(ctx, a.redis.HealthCheck, 3*time.Second)
 	})
 
+	// returns the first error
 	return g.Wait()
 }
 
 func (a *App) Shutdown(ctx context.Context) error {
+	var shutdownErr error
+
+	a.log.Info("shutting down gRPC")
 	a.grpc.Stop()
+
+	a.log.Info("disconnecting NATS")
 	a.nats.Disconnect()
+
+	a.log.Info("closing Redis")
 	a.redis.Close()
-	return a.mongo.Disconnect(ctx)
+
+	a.log.Info("disconnecting Mongo")
+	if err := a.mongo.Disconnect(ctx); err != nil {
+		a.log.Error("failed to disconnect Mongo", "err", err)
+		shutdownErr = err
+	}
+
+	return shutdownErr
 }
 
 func healthLoop(ctx context.Context, hc func(context.Context, time.Duration) error, timeout time.Duration) error {
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(time.Second * 3)
 	defer ticker.Stop()
 
 	var fails int
@@ -157,7 +173,6 @@ func healthLoop(ctx context.Context, hc func(context.Context, time.Duration) err
 				if fails > 3 {
 					return fmt.Errorf("unhealthy: %w", err)
 				}
-				time.Sleep(time.Second)
 			} else {
 				fails = 0
 			}

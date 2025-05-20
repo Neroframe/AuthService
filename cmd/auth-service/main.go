@@ -37,11 +37,23 @@ func main() {
 		log.Fatal("app init failed", "err", err)
 	}
 
-	// Run the app
-	if err := app.Run(ctx); err != nil {
-		log.Error("app terminated with error", "err", err)
+	// Run the app with error channel
+	appErr := make(chan error)
+
+	go func() {
+		appErr <- app.Run(ctx)
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Info("shutdown signal received")
+	case err := <-appErr:
+		if err != nil {
+			log.Error("app run error", "err", err)
+		}
 	}
 
+	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := app.Shutdown(shutdownCtx); err != nil {

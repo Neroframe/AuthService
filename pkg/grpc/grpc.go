@@ -67,7 +67,7 @@ func New(cfg Config, registerSrv func(*grpc.Server), unaryInts []grpc.UnaryServe
 	// Register service handlers
 	registerSrv(srv)
 
-	// Expore server reflection for debug
+	// Expose server reflection for debug
 	reflection.Register(srv)
 
 	// Open TCP listener
@@ -89,7 +89,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		// Context cancelled stop the server gracefully
+		// Stop after context canceled
 		s.Stop()
 		return nil
 	case err := <-serveErr:
