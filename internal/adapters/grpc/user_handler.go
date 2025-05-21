@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Neroframe/AuthService/internal/adapters/grpc/middleware"
 	"github.com/Neroframe/AuthService/internal/domain"
@@ -88,6 +89,7 @@ func (h *AuthHandler) SendVerificationCode(ctx context.Context, req *authpb.Veri
 
 func (h *AuthHandler) VerifyAccount(ctx context.Context, req *authpb.VerifyAccountRequest) (*authpb.VerifyAccountResponse, error) {
 	// fetch code from redis:
+
 	// does code exist
 	// has it expired
 	// codes match?
@@ -112,14 +114,34 @@ func (h *AuthHandler) ChangePassword(ctx context.Context, req *authpb.ChangePass
 }
 
 func (h *AuthHandler) ResetPassword(ctx context.Context, req *authpb.ResetPasswordRequest) (*authpb.ResetPasswordResponse, error) {
-	// generate code
-	// send code to user email
-	return nil, nil
+	err := h.uc.SendVerificationCode(ctx, req.GetEmail(), "reset_password")
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to send reset code: %v", err)
+	}
+
+	return &authpb.ResetPasswordResponse{
+		Success: true,
+		Message: "Reset code sent to email",
+	}, nil
 }
 
 func (h *AuthHandler) ConfirmResetPassword(ctx context.Context, req *authpb.ConfirmResetRequest) (*authpb.ConfirmResetResponse, error) {
-	// Validates the code
+	// Validate code and purpose
+	if err := h.uc.VerifyCode(ctx, req.GetEmail(), req.GetCode(), "reset_password"); err != nil {
+		if errors.Is(err, domain.ErrCodeInvalid) || errors.Is(err, domain.ErrCodeExpired) {
+			return nil, status.Error(codes.InvalidArgument, "invalid or expired code")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to verify code: %v", err)
+	}
 
-	// Updates the password
-	return nil, nil
+	// Update password
+	err := h.uc.ConfirmResetPassword(ctx, req.GetEmail(), req.GetCode(), req.GetNewPassword())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to reset password: %v", err)
+	}
+
+	return &authpb.ConfirmResetResponse{
+		Success: true,
+		Message: "Password has been reset",
+	}, nil
 }

@@ -15,9 +15,9 @@ type UserUsecase interface {
 	GetUserByID(ctx context.Context, userID string) (*domain.User, error)
 	UpdateProfile(ctx context.Context, updated *domain.User) (*domain.User, error)
 
-	SendVerificationCode(ctx context.Context, email string) error
-	VerifyAccount(ctx context.Context, email string, code string) error
-
+	SendVerificationCode(ctx context.Context, email, purpose string) error
+	VerifyCode(ctx context.Context, email string, code string, purpose string) error
+	
 	ChangePassword(ctx context.Context, userID, oldPw, newPw string) error
 	StartResetPassword(ctx context.Context, email string) error
 	ConfirmResetPassword(ctx context.Context, email, code, newPw string) error

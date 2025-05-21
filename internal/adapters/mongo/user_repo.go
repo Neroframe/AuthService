@@ -41,7 +41,7 @@ func (r *UserRepository) Create(ctx context.Context, u *domain.User) error {
 	})
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return domain.ErrEmailAlreadyExists
+			return domain.ErrUserNotFound
 		}
 		return err
 	}

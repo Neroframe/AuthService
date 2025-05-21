@@ -13,10 +13,11 @@ var (
 	ErrUserNotFound             = errors.New("user not found")
 	ErrInvalidCredentials       = errors.New("invalid credentials")
 	ErrInvalidToken             = errors.New("invalid token")
-	ErrVerificationCodeExpired  = errors.New("verification code expired")
-	ErrVerificationCodeInvalid  = errors.New("invalid verification code")
+	ErrCodeInvalid              = errors.New("verification code invalid")
+	ErrCodeExpired              = errors.New("verification code expired")
 	ErrPasswordResetCodeExpired = errors.New("password reset code expired")
 	ErrPasswordResetCodeInvalid = errors.New("invalid password reset code")
+	ErrInvalidPurpose           = errors.New("invalid code purpose")
 )
 
 type User struct {
@@ -26,6 +27,7 @@ type User struct {
 	Password  string    `bson:"password"`
 	Role      Role      `bson:"role"`
 	Phone     string    `bson:"phone"`
+	Verified  bool      `bson:"verified"`
 	CreatedAt time.Time `bson:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at"`
 }
@@ -48,43 +50,6 @@ func (r Role) IsValid() bool {
 	}
 }
 
-// NewUser constructs a new User, ensuring the role is valid
-func NewUser(id, email, username, passwordHash string, role Role, phone string) (*User, error) {
-	if !role.IsValid() {
-		return nil, ErrInvalidCredentials
-	}
-	return &User{
-		ID:        id,
-		Email:     email,
-		Username:  username,
-		Password:  passwordHash,
-		Role:      role,
-		Phone:     phone,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}, nil
-}
-
-// UpdateProfile updates mutable user fields
-func (u *User) UpdateProfile(email, username, phone string) {
-	if email != "" {
-		u.Email = email
-	}
-	if username != "" {
-		u.Username = username
-	}
-	if phone != "" {
-		u.Phone = phone
-	}
-	u.UpdatedAt = time.Now()
-}
-
-// ChangePassword sets a new password hash
-func (u *User) ChangePassword(newHash string) {
-	u.Password = newHash
-	u.UpdatedAt = time.Now()
-}
-
 type UserRepository interface {
 	Create(ctx context.Context, u *User) error
 	FindByEmail(ctx context.Context, email string) (*User, error)
@@ -94,10 +59,11 @@ type UserRepository interface {
 }
 
 type UserCache interface {
+	Set(ctx context.Context, code *VerificationCode) error
+	Get(ctx context.Context, userID string) (*VerificationCode, error)
+	Delete(ctx context.Context, userID string) error
+
 	GetByID(ctx context.Context, userID string) (*User, error)
-	// Set(ctx context.Context, user *User) error
-	// SetMany(ctx context.Context, users []*User) error
-	// Delete(ctx context.Context, userID string) error
 }
 
 type PasswordHasher interface {

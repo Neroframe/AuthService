@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/Neroframe/AuthService/internal/domain"
@@ -43,11 +44,6 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 		u.log.Error("failed to create user", "email", email, "err", err)
 		return nil, err
 	}
-
-	// Save to redis
-	// if err := u.cache.Set(ctx, u); err != nil {
-	// 	u.log.Warn("cache set failed", "err", err)
-	// }
 
 	// NATS publish
 	event := &domain.UserRegisteredEvent{
@@ -106,12 +102,73 @@ func (u *userUsecase) ValidateToken(ctx context.Context, jwt string) (*domain.To
 	return payload, nil
 }
 
-func (u *userUsecase) SendVerificationCode(ctx context.Context, email string) error {
+func (u *userUsecase) SendVerificationCode(ctx context.Context, email, purpose string) error {
+	// Find user
+	user, err := u.repo.FindByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+
+	// Generate struct with code
+	code := fmt.Sprintf("%06d", rand.Intn(1000000))
+	verificationCode := domain.NewVerificationCode(user.ID, code, purpose, 5*time.Minute)
+
+	// Store in redis
+	if err := u.cache.Set(ctx, verificationCode); err != nil {
+		return fmt.Errorf("redis set: %w", err)
+	}
+
+	// TODO: send email
+	fmt.Printf("[DEBUG] Sent verification code to %s: %s\n", user.Email, verificationCode.Code)
 
 	return nil
-
 }
-func (u *userUsecase) VerifyAccount(ctx context.Context, email string, code string) error {
+
+func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string, purpose string) error {
+	// Find user
+	user, err := u.repo.FindByEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+
+	// Find code
+	cachedCode, err := u.cache.Get(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("redis get: %w", err)
+	}
+
+	// Validate
+	if cachedCode.Code != code {
+		return domain.ErrCodeInvalid
+	}
+
+	if time.Now().After(cachedCode.ExpiresAt) {
+		return domain.ErrCodeExpired
+	}
+
+	if cachedCode.Purpose != purpose {
+		return domain.ErrInvalidPurpose
+	}
+
+	// Purpose specific actions
+	switch purpose {
+	case "email_verification":
+		// Update user as verified
+		user.Verified = true
+		if _, err := u.repo.Update(ctx, user, "verified"); err != nil {
+			return fmt.Errorf("update user: %w", err)
+		}
+	case "reset_password":
+		// wait for ConfirmResetPassword to set new password
+	default:
+		return domain.ErrInvalidPurpose
+	}
+
+	// Remove from cache
+	err = u.cache.Delete(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("redis del: %w", err)
+	}
 
 	return nil
 }

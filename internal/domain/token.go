@@ -31,40 +31,36 @@ type VerificationCode struct {
 	UserID    string
 	Code      string
 	ExpiresAt time.Time
-	Purpose   string // e.g. "email_verification", "reset_password"
+	Purpose   string // "email_verification" or "reset_password"
 }
 
-// NewVerificationCode creates a code with a TTL
-func NewVerificationCode(userID, code string, ttl time.Duration) *VerificationCode {
-	return &VerificationCode{
-		Code:      code,
-		UserID:    userID,
-		ExpiresAt: time.Now().Add(ttl),
-	}
-}
-
-// IsExpired returns true if the code has expired
-func (v *VerificationCode) IsExpired() bool {
-	return time.Now().After(v.ExpiresAt)
-}
-
-// PasswordResetCode represents a one-time reset code
+// represents a one-time reset code
 type PasswordResetCode struct {
 	Code      string    `bson:"code"`
 	UserID    string    `bson:"user_id"`
 	ExpiresAt time.Time `bson:"expires_at"`
 }
 
-// NewPasswordResetCode creates a reset code with a TTL
+// returns true if the code has expired
+func (v *VerificationCode) IsExpired() bool {
+	return time.Now().After(v.ExpiresAt)
+}
+
+// creates a verification code with TTL
+func NewVerificationCode(userID, code, purpose string, ttl time.Duration) *VerificationCode {
+	return &VerificationCode{
+		UserID:    userID,
+		Code:      code,
+		Purpose:   purpose,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+}
+
+// creates a reset code with a TTL
 func NewPasswordResetCode(userID, code string, ttl time.Duration) *PasswordResetCode {
 	return &PasswordResetCode{
 		Code:      code,
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(ttl),
 	}
-}
-
-// IsExpired returns true if the reset code has expired
-func (r *PasswordResetCode) IsExpired() bool {
-	return time.Now().After(r.ExpiresAt)
 }
