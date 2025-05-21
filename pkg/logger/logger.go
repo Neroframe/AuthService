@@ -3,11 +3,14 @@ package logger
 import (
 	"log/slog"
 	"os"
+	"strings"
+	"time"
 )
 
 type Config struct {
-	Level  string
-	Format string
+	Level        string
+	Format       string
+	SourceFolder string
 }
 
 type Logger struct {
@@ -30,6 +33,22 @@ func New(cfg Config) *Logger {
 	opts := &slog.HandlerOptions{
 		AddSource: true,
 		Level:     lvl,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				// Set more readable time format
+				t := a.Value.Time().Format(time.TimeOnly)
+				a.Value = slog.StringValue(t)
+			}
+			if a.Key == slog.SourceKey {
+				src := a.Value.String()
+				// Trim until root path
+				// fmt.Printf("source path:`%s`   ", cfg.SourceFolder)
+				if startIndex := strings.Index(src, cfg.SourceFolder); startIndex >= 0 {
+					a.Value = slog.StringValue(src[startIndex+len(cfg.SourceFolder)+1 : len(src)-1])
+				}
+			}
+			return a
+		},
 	}
 
 	var handler slog.Handler

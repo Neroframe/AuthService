@@ -87,10 +87,9 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 		return nil, fmt.Errorf("grpc AuthClient init: %w", err)
 	}
 
-	// gRPC interceptor that uses client
-	// it validates token and injects user info
+	// Validates token and injects user info into ctx
 	authInt := middleware.NewAuthInterceptor(
-		// public routes
+		// set public routes
 		[]string{
 			"/auth.AuthService/Login",
 			"/auth.AuthService/Register",
@@ -99,7 +98,12 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 		},
 		authClient,
 		jwtSvc,
+		log,
 	)
+	unaryInterceptors := []grpc.UnaryServerInterceptor{
+		authInt.UnaryLoggingInterceptor(),
+		authInt.UnaryAuthentificate(),
+	}
 
 	// gRPC server setup
 	authHandler := grpcadapter.NewHandler(userUC, log) // handler implements server logic
@@ -108,9 +112,7 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 		func(s *grpc.Server) {
 			authpb.RegisterAuthServiceServer(s, authHandler) // register AuthService in a gRPC server
 		},
-		[]grpc.UnaryServerInterceptor{
-			authInt.Unary(),
-		},
+		unaryInterceptors,
 	)
 	if err != nil {
 		mongoClient.Disconnect(ctx)

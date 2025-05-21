@@ -2,24 +2,27 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/Neroframe/AuthService/internal/domain"
+	"github.com/Neroframe/AuthService/internal/repository"
 	"github.com/Neroframe/AuthService/pkg/logger"
 )
 
 type userUsecase struct {
 	log       *logger.Logger
-	repo      domain.UserRepository
+	repo      repository.UserRepository
 	hasher    domain.PasswordHasher
 	publisher domain.UserEventPublisher
 	cache     domain.UserCache
 	jwt       domain.JWTService
 }
 
-func NewUserUsecase(r domain.UserRepository,
+func NewUserUsecase(
+	r repository.UserRepository,
 	h domain.PasswordHasher,
 	p domain.UserEventPublisher,
 	c domain.UserCache,
@@ -33,16 +36,17 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 	// hash password
 	hashed, err := u.hasher.Hash(ctx, password)
 	if err != nil {
-		u.log.Error("failed to hash password", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("Register Hash: %w", err)
 	}
 
 	usr := &domain.User{Email: email, Password: hashed, Role: role}
 
 	// Save to DB
 	if err := u.repo.Create(ctx, usr); err != nil {
-		u.log.Error("failed to create user", "email", email, "err", err)
-		return nil, err
+		if errors.Is(err, repository.ErrEmailAlreadyUsed) {
+			return nil, domain.ErrEmailAlreadyExists
+		}
+		return nil, fmt.Errorf("Register Create: %w", err)
 	}
 
 	// NATS publish
@@ -53,9 +57,8 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := u.publisher.PublishUserRegistered(ctx, event); err != nil {
-		u.log.Warn("failed to publish user_registered event", "user_id", usr.ID, "err", err)
+		return nil, fmt.Errorf("Register PublishEvent (registered): %w", err) // TODO: handle or fire-and-forget
 	}
-	u.log.Info("user registered", "user_id", usr.ID, "email", usr.Email)
 
 	return usr, nil
 }
@@ -63,25 +66,21 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 func (u *userUsecase) Login(ctx context.Context, email, password string) (accessToken string, payload *domain.TokenPayload, err error) {
 	user, err := u.repo.FindByEmail(ctx, email)
 	if err != nil {
-		u.log.Warn("user not found", "err", err)
-		return "", nil, fmt.Errorf("invalid credentials")
+		if errors.Is(err, repository.ErrNotFound) {
+			return "", nil, domain.ErrUserNotFound
+		}
+		return "", nil, fmt.Errorf("Login FindByEmail: %w", err)
 	}
-
-	u.log.Info("user found", "email", user.Email, "hash", user.Password, "plain", password)
 
 	ok := u.hasher.Verify(ctx, user.Password, password)
 	if !ok {
-		u.log.Warn("invalid password", "email", email)
-		return "", nil, fmt.Errorf("invalid credentials")
+		return "", nil, domain.ErrInvalidCredentials
 	}
 
 	token, iat, exp, err := u.jwt.Generate(user.ID, user.Role)
 	if err != nil {
-		u.log.Warn("jwt.generate failed", "err", err)
-		return "", nil, fmt.Errorf("failed to generate token")
+		return "", nil, fmt.Errorf("Login jwt.Generate: %w", err)
 	}
-
-	u.log.Info("Login success", "token", token)
 
 	return token, &domain.TokenPayload{
 		UserID:    user.ID,
@@ -95,8 +94,7 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (access
 func (u *userUsecase) ValidateToken(ctx context.Context, jwt string) (*domain.TokenPayload, error) {
 	payload, err := u.jwt.Validate(ctx, jwt)
 	if err != nil {
-		u.log.Warn("invalid token", "token", jwt)
-		return nil, fmt.Errorf("invalid token: %w", err)
+		return nil, fmt.Errorf("ValidateToken jwt.Validate: %w", err)
 	}
 
 	return payload, nil
@@ -106,7 +104,10 @@ func (u *userUsecase) SendVerificationCode(ctx context.Context, email, purpose s
 	// Find user
 	user, err := u.repo.FindByEmail(ctx, email)
 	if err != nil {
-		return fmt.Errorf("find user: %w", err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return domain.ErrUserNotFound
+		}
+		return fmt.Errorf("SendVerificationCode FindByEmail: %w", err)
 	}
 
 	// Generate struct with code
@@ -115,7 +116,7 @@ func (u *userUsecase) SendVerificationCode(ctx context.Context, email, purpose s
 
 	// Store in redis
 	if err := u.cache.Set(ctx, verificationCode); err != nil {
-		return fmt.Errorf("redis set: %w", err)
+		return fmt.Errorf("SendVerificationCode cache.Set: %w", err)
 	}
 
 	// TODO: send email
@@ -128,13 +129,16 @@ func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string,
 	// Find user
 	user, err := u.repo.FindByEmail(ctx, email)
 	if err != nil {
-		return fmt.Errorf("find user: %w", err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return domain.ErrUserNotFound
+		}
+		return fmt.Errorf("VerifyCode FindByEmail: %w", err)
 	}
 
 	// Find code
 	cachedCode, err := u.cache.Get(ctx, user.ID)
 	if err != nil {
-		return fmt.Errorf("redis get: %w", err)
+		return fmt.Errorf("VerifyCode cache.Get: %w", err)
 	}
 
 	// Validate
@@ -152,13 +156,16 @@ func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string,
 
 	// Purpose specific actions
 	switch purpose {
-	case "email_verification":
+	case domain.PurposeEmailVerification:
 		// Update user as verified
 		user.Verified = true
 		if _, err := u.repo.Update(ctx, user, "verified"); err != nil {
-			return fmt.Errorf("update user: %w", err)
+			if errors.Is(err, repository.ErrNotFound) {
+				return domain.ErrUserNotFound
+			}
+			return fmt.Errorf("VerifyCode email Update: %w", err)
 		}
-	case "reset_password":
+	case domain.PurposeResetPassword:
 		// wait for ConfirmResetPassword to set new password
 	default:
 		return domain.ErrInvalidPurpose
@@ -167,7 +174,7 @@ func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string,
 	// Remove from cache
 	err = u.cache.Delete(ctx, user.ID)
 	if err != nil {
-		return fmt.Errorf("redis del: %w", err)
+		return fmt.Errorf("VerifyCode cache.Delete: %w", err) // TODO: handle or fire-and-forget
 	}
 
 	return nil

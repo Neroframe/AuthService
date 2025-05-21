@@ -19,6 +19,7 @@ func NewJWTService(secret string, ttl time.Duration) domain.JWTService {
 	return &service{secretKey: secret, accessTTL: ttl}
 }
 
+// TODO: use domain errors and map in usecase 
 func (s *service) Validate(ctx context.Context, tokenStr string) (*domain.TokenPayload, error) {
 	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
 		return []byte(s.secretKey), nil

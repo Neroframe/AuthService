@@ -6,13 +6,26 @@ import (
 	"time"
 )
 
+// Purposes for code verification
+const (
+	PurposeEmailVerification = "email_verification"
+	PurposeResetPassword     = "reset_password"
+)
+
 // Domain errors
 var (
-	ErrEmailAlreadyExists       = errors.New("email already exists")
-	ErrUsernameAlreadyExists    = errors.New("username already exists")
-	ErrUserNotFound             = errors.New("user not found")
-	ErrInvalidCredentials       = errors.New("invalid credentials")
-	ErrInvalidToken             = errors.New("invalid token")
+	// User errors
+	ErrEmailAlreadyExists    = errors.New("email already exists")
+	ErrUsernameAlreadyExists = errors.New("username already exists")
+	ErrUserNotFound          = errors.New("user not found")
+	ErrPasswordUnchanged     = errors.New("password unchanged")
+	ErrInvalidCredentials    = errors.New("invalid credentials")
+
+	// Token errors
+	ErrInvalidToken = errors.New("invalid token")
+	ErrTokenExpired = errors.New("token expired")
+
+	// Code errors
 	ErrCodeInvalid              = errors.New("verification code invalid")
 	ErrCodeExpired              = errors.New("verification code expired")
 	ErrPasswordResetCodeExpired = errors.New("password reset code expired")
@@ -50,20 +63,10 @@ func (r Role) IsValid() bool {
 	}
 }
 
-type UserRepository interface {
-	Create(ctx context.Context, u *User) error
-	FindByEmail(ctx context.Context, email string) (*User, error)
-	FindByID(ctx context.Context, id string) (*User, error)
-	Update(ctx context.Context, u *User, fields ...string) (*User, error)
-	Delete(ctx context.Context, id string) error
-}
-
 type UserCache interface {
 	Set(ctx context.Context, code *VerificationCode) error
 	Get(ctx context.Context, userID string) (*VerificationCode, error)
 	Delete(ctx context.Context, userID string) error
-
-	GetByID(ctx context.Context, userID string) (*User, error)
 }
 
 type PasswordHasher interface {

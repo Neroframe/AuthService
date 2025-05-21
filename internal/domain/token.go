@@ -10,6 +10,7 @@ import (
 // ACCESS_TOKEN_SECRET=access_token_secret
 // REFRESH_TOKEN_SECRET=refresh_token_secret
 
+// TODO: handle refresh token
 type JWTService interface {
 	// Create a new signed access token
 	Generate(userID string, role Role) (accessToken string, issuedAt time.Time, expiresAt int64, err error)
@@ -34,19 +35,19 @@ type VerificationCode struct {
 	Purpose   string // "email_verification" or "reset_password"
 }
 
-// represents a one-time reset code
+// Password reset code ?
 type PasswordResetCode struct {
 	Code      string    `bson:"code"`
 	UserID    string    `bson:"user_id"`
 	ExpiresAt time.Time `bson:"expires_at"`
 }
 
-// returns true if the code has expired
+// Returns true if the code has expired
 func (v *VerificationCode) IsExpired() bool {
 	return time.Now().After(v.ExpiresAt)
 }
 
-// creates a verification code with TTL
+// Creates a verification code with TTL
 func NewVerificationCode(userID, code, purpose string, ttl time.Duration) *VerificationCode {
 	return &VerificationCode{
 		UserID:    userID,
@@ -56,7 +57,7 @@ func NewVerificationCode(userID, code, purpose string, ttl time.Duration) *Verif
 	}
 }
 
-// creates a reset code with a TTL
+// Creates a reset code with TTL
 func NewPasswordResetCode(userID, code string, ttl time.Duration) *PasswordResetCode {
 	return &PasswordResetCode{
 		Code:      code,

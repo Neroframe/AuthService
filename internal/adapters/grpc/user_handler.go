@@ -12,8 +12,6 @@ import (
 )
 
 func (h *AuthHandler) GetUserByID(ctx context.Context, req *authpb.GetUserByIDRequest) (*authpb.GetUserByIDResponse, error) {
-	h.log.Info("GetUserByID called", "id", req.UserId)
-
 	// Admin only
 	val := ctx.Value(middleware.UserCtxKey)
 	claims, ok := val.(*domain.TokenPayload)
@@ -48,8 +46,6 @@ func (h *AuthHandler) GetUserByID(ctx context.Context, req *authpb.GetUserByIDRe
 }
 
 func (h *AuthHandler) UpdateUserProfile(ctx context.Context, req *authpb.UpdateUserRequest) (*authpb.UpdateUserResponse, error) {
-	h.log.Info("UpdateUserProfile called", "id", req.UserId)
-
 	user := &domain.User{
 		ID:       req.GetUserId(),
 		Email:    req.GetEmail(),
@@ -99,8 +95,6 @@ func (h *AuthHandler) VerifyAccount(ctx context.Context, req *authpb.VerifyAccou
 }
 
 func (h *AuthHandler) ChangePassword(ctx context.Context, req *authpb.ChangePasswordRequest) (*authpb.ChangePasswordResponse, error) {
-	h.log.Info("ChangePassword called", "id", req.UserId)
-
 	err := h.uc.ChangePassword(ctx, req.UserId, req.OldPassword, req.NewPassword)
 	if err != nil {
 		h.log.Error("failed to change password", "err", err)

@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	redisv9 "github.com/redis/go-redis/v9"
 )
 
-var ErrCacheMiss = fmt.Errorf("cache miss")
+var ErrCacheMiss = errors.New("cache miss")
 
 type AuthCache struct {
 	client *redisv9.Client
@@ -60,18 +61,4 @@ func (c *AuthCache) Delete(ctx context.Context, userID string) error {
 	}
 
 	return nil
-}
-
-func (c *AuthCache) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	data, err := c.client.Get(ctx, id).Bytes()
-	if err == redisv9.Nil {
-		return nil, ErrCacheMiss
-	} else if err != nil {
-		return nil, err
-	}
-	var u domain.User
-	if err := json.Unmarshal(data, &u); err != nil {
-		return nil, err
-	}
-	return &u, nil
 }

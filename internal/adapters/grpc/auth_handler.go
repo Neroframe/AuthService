@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Neroframe/AuthService/internal/domain"
@@ -22,13 +23,44 @@ func NewHandler(uc usecase.UserUsecase, log *logger.Logger) *AuthHandler {
 	return &AuthHandler{uc: uc, log: log}
 }
 
-func (h *AuthHandler) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
-	h.log.Info("Login called", "email", req.Email, "password", req.Password)
+func (h *AuthHandler) Register(ctx context.Context, req *authpb.RegisterRequest) (*authpb.RegisterResponse, error) {
+	if req.Email == "" || req.Password == "" {
+		return nil, status.Error(codes.InvalidArgument, "Email and password required")
+	}
 
+	// Validate and convert into domain.Role
+	role, err := convertProtoRole(req.Role)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid role")
+	}
+	h.log.Info("role converted", "email", req.Email, "role", role)
+
+	usr, err := h.uc.Register(ctx, req.Email, req.Password, role)
+	if err != nil {
+		if errors.Is(err, domain.ErrEmailAlreadyExists) {
+			return nil, status.Error(codes.AlreadyExists, "email already in use")
+		}
+		h.log.Error("Register failed", "err", err)
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+
+	h.log.Info("Register successful", "user_id", usr.ID, "email", usr.Email)
+
+	return &authpb.RegisterResponse{
+		Success:     true,
+		Message:     "User Registered",
+		AccessToken: "", // TODO ?
+	}, nil
+}
+
+func (h *AuthHandler) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
 	token, payload, err := h.uc.Login(ctx, req.Email, req.Password)
 	if err != nil {
-		h.log.Warn("Login failed", "err", err)
-		return nil, status.Error(codes.Unauthenticated, "invalid email or password")
+		if errors.Is(err, domain.ErrUserNotFound) || errors.Is(err, domain.ErrInvalidCredentials) {
+			return nil, status.Error(codes.Unauthenticated, "invalid email or password")
+		}
+		h.log.Error("Login failed", "err", err)
+		return nil, status.Error(codes.Internal, "internal error")
 	}
 
 	h.log.Info("Login successful", "user_id", payload.UserID)
@@ -41,42 +73,14 @@ func (h *AuthHandler) Login(ctx context.Context, req *authpb.LoginRequest) (*aut
 	}, nil
 }
 
-func (h *AuthHandler) Register(ctx context.Context, req *authpb.RegisterRequest) (*authpb.RegisterResponse, error) {
-	h.log.Info("Register called", "email", req.Email)
-
-	// Convert into domain.Role
-	role, err := convertProtoRole(req.Role)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid role")
-	}
-
-	h.log.Info("role converted", "email", req.Email, "role", role)
-
-	usr, err := h.uc.Register(ctx, req.Email, req.Password, role)
-	if err != nil {
-		h.log.Error("Register usecase failed", "err", err)
-		return nil, status.Error(codes.Internal, "failed to register user")
-	}
-
-	h.log.Info("User Registered", "id", usr.ID)
-
-	return &authpb.RegisterResponse{
-		Success:     true,
-		Message:     "User Registered",
-		AccessToken: "", // TODO ?
-	}, nil
-}
-
 func (h *AuthHandler) ValidateToken(ctx context.Context, req *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
-	h.log.Info("ValidateToken called", "token", req.Jwt)
-
 	payload, err := h.uc.ValidateToken(ctx, req.Jwt)
 	if err != nil {
 		h.log.Error("ValidateToken usecase failed", "err", err)
 		return nil, status.Error(codes.InvalidArgument, "invalid token")
 	}
 
-	h.log.Info("token valid", "user_id", payload.UserID)
+	h.log.Info("Token valid", "user_id", payload.UserID)
 
 	return &authpb.ValidateTokenResponse{
 		Valid:     true,

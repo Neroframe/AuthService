@@ -82,8 +82,9 @@ type (
 
 	// ------------ Log ------------
 	Log struct {
-		Level  string `env:"LOG_LEVEL" envDefault:"info"`  // "debug", "info", "warn", "error"
-		Format string `env:"LOG_FORMAT" envDefault:"text"` // "text" or "json"
+		Level        string `env:"LOG_LEVEL" envDefault:"info"`  // "debug", "info", "warn", "error"
+		Format       string `env:"LOG_FORMAT" envDefault:"text"` // "text" or "json"
+		SourceFolder string `env:"LOG_SOURCE_FOLDER"`            // project folder name
 	}
 )
 

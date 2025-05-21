@@ -57,6 +57,7 @@ func New(cfg Config, registerSrv func(*grpc.Server), unaryInts []grpc.UnaryServe
 		opts = append(opts, grpc.Creds(creds))
 	}
 
+	// Append interceptors in order
 	if len(unaryInts) > 0 {
 		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInts...))
 	}
@@ -67,7 +68,7 @@ func New(cfg Config, registerSrv func(*grpc.Server), unaryInts []grpc.UnaryServe
 	// Register service handlers
 	registerSrv(srv)
 
-	// Expose server reflection for debug
+	// Expose server reflection for debug (grpccurl)
 	reflection.Register(srv)
 
 	// Open TCP listener
