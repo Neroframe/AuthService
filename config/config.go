@@ -14,6 +14,7 @@ type (
 		Nats    Nats
 		Redis   Redis
 		JWT     JWT
+		Gomail  Gomail
 		Log     Log
 	}
 
@@ -78,6 +79,15 @@ type (
 	JWT struct {
 		Secret     string        `env:"JWT_SECRET"`     // HMAC signing key
 		Expiration time.Duration `env:"JWT_EXPIRATION"` // token ttl
+	}
+
+	// ------------ Gomail ---------
+	Gomail struct {
+		From         string `env:"GOMAIL_FROM"`
+		Host         string `env:"GOMAIL_HOST"`
+		Port         int    `env:"GOMAIL_PORT"`
+		SMTPUsername string `env:"GOMAIL_SMTP_USERNAME"`
+		SMTPPassword string `env:"GOMAIL_SMTP_PASSWORD"`
 	}
 
 	// ------------ Log ------------

@@ -54,7 +54,7 @@ message RegisterRequest {
 message RegisterResponse {
     bool success = 1;
     string message = 2;
-    string access_token = 3; // TODO? 
+    string access_token = 3; 
 }
 
 message ValidateTokenRequest {

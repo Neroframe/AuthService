@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+//
 
 // Purposes for code verification
 const (
@@ -54,6 +58,24 @@ const (
 	STUDENT     Role = "student"
 )
 
+func NewUser(email, hashedPwd string, role Role) *User {
+	return &User{
+		ID:        uuid.NewString(),
+		Email:     email,
+		Password:  hashedPwd,
+		Role:      role,
+		Verified:  false,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func (u *User) Verify() {
+	if !u.Verified {
+		u.Verified = true
+		u.UpdatedAt = time.Now().UTC()
+	}
+}
+
 func (r Role) IsValid() bool {
 	switch r {
 	case ADMIN, TEACHER, STUDENT:
@@ -72,4 +94,8 @@ type UserCache interface {
 type PasswordHasher interface {
 	Hash(ctx context.Context, plain string) (string, error)
 	Verify(ctx context.Context, hashed, plain string) bool
+}
+
+type EmailSender interface {
+	Send(to, subject, htmlBody string) error
 }

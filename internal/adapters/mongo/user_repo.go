@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Neroframe/AuthService/internal/domain"
 	"github.com/Neroframe/AuthService/internal/repository"
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -31,16 +29,7 @@ func NewUserRepository(ctx context.Context, db *mongo.Database) (*UserRepository
 }
 
 func (r *UserRepository) Create(ctx context.Context, u *domain.User) error {
-	u.ID = uuid.New().String()
-	u.CreatedAt = time.Now().UTC()
-
-	_, err := r.collection.InsertOne(ctx, bson.M{
-		"_id":        u.ID,
-		"email":      u.Email,
-		"password":   u.Password,
-		"role":       string(u.Role), // store as string
-		"created_at": u.CreatedAt,
-	})
+	_, err := r.collection.InsertOne(ctx, u)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			return repository.ErrEmailAlreadyUsed
@@ -80,20 +69,25 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*domain.User,
 }
 
 func (r *UserRepository) Update(ctx context.Context, u *domain.User, fields ...string) (*domain.User, error) {
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("repo Update: no fields specified for update")
+	}
+
 	filter := bson.M{"_id": u.ID}
 	update := buildUpdateFields(u, fields...)
 
-	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
-	var updated domain.User
+	opts := options.FindOneAndUpdate().
+	SetReturnDocument(options.After). // to decode result
+	SetUpsert(false) // no insert 
 
-	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updated)
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(u)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, repository.ErrNotFound
 		}
 		return nil, fmt.Errorf("repo Update: %w", err)
 	}
-	return &updated, nil
+	return u, nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {

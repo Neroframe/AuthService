@@ -13,12 +13,13 @@ import (
 )
 
 type userUsecase struct {
-	log       *logger.Logger
-	repo      repository.UserRepository
-	hasher    domain.PasswordHasher
-	publisher domain.UserEventPublisher
-	cache     domain.UserCache
-	jwt       domain.JWTService
+	log         *logger.Logger
+	repo        repository.UserRepository
+	hasher      domain.PasswordHasher
+	publisher   domain.UserEventPublisher
+	cache       domain.UserCache
+	jwt         domain.JWTService
+	emailSender domain.EmailSender
 }
 
 func NewUserUsecase(
@@ -28,8 +29,9 @@ func NewUserUsecase(
 	c domain.UserCache,
 	log *logger.Logger,
 	jwtSvc domain.JWTService,
+	emailSender domain.EmailSender,
 ) UserUsecase {
-	return &userUsecase{repo: r, hasher: h, publisher: p, cache: c, log: log, jwt: jwtSvc}
+	return &userUsecase{repo: r, hasher: h, publisher: p, cache: c, log: log, jwt: jwtSvc, emailSender: emailSender}
 }
 
 func (u *userUsecase) Register(ctx context.Context, email, password string, role domain.Role) (*domain.User, error) {
@@ -39,7 +41,7 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 		return nil, fmt.Errorf("Register Hash: %w", err)
 	}
 
-	usr := &domain.User{Email: email, Password: hashed, Role: role}
+	usr := domain.NewUser(email, hashed, role)
 
 	// Save to DB
 	if err := u.repo.Create(ctx, usr); err != nil {
@@ -112,17 +114,49 @@ func (u *userUsecase) SendVerificationCode(ctx context.Context, email, purpose s
 
 	// Generate struct with code
 	code := fmt.Sprintf("%06d", rand.Intn(1000000))
-	verificationCode := domain.NewVerificationCode(user.ID, code, purpose, 5*time.Minute)
+	var verificationCode *domain.VerificationCode
+	verificationCode = domain.NewVerificationCode(user.ID, code, purpose, 5*time.Minute)
 
 	// Store in redis
 	if err := u.cache.Set(ctx, verificationCode); err != nil {
 		return fmt.Errorf("SendVerificationCode cache.Set: %w", err)
 	}
 
-	// TODO: send email
-	fmt.Printf("[DEBUG] Sent verification code to %s: %s\n", user.Email, verificationCode.Code)
+	// Send email
+	if err := u.emailSender.Send(user.Email, purpose, buildEmailBody(purpose, code)); err != nil {
+		return fmt.Errorf("SendVerificationCode Send: %w", err)
+	}
 
 	return nil
+}
+
+func buildEmailBody(purpose, code string) string {
+	switch purpose {
+	case domain.PurposeEmailVerification:
+		return fmt.Sprintf(`
+			<html>
+				<body>
+					<h2>Email Verification</h2>
+					<p>Use the following code to verify your email:</p>
+					<h3>%s</h3>
+					<p>This code will expire in 10 minutes.</p>
+				</body>
+			</html>`, code)
+
+	case domain.PurposeResetPassword:
+		return fmt.Sprintf(`
+			<html>
+				<body>
+					<h2>Password Reset</h2>
+					<p>Use the following code to reset your password:</p>
+					<h3>%s</h3>
+					<p>If you didn't request this, ignore the email.</p>
+				</body>
+			</html>`, code)
+
+	default:
+		return "<html><body><p>Invalid email purpose.</p></body></html>"
+	}
 }
 
 func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string, purpose string) error {
@@ -158,7 +192,7 @@ func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string,
 	switch purpose {
 	case domain.PurposeEmailVerification:
 		// Update user as verified
-		user.Verified = true
+		user.Verify()
 		if _, err := u.repo.Update(ctx, user, "verified"); err != nil {
 			if errors.Is(err, repository.ErrNotFound) {
 				return domain.ErrUserNotFound

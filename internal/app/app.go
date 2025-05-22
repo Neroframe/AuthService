@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	gomailpkg "github.com/Neroframe/AuthService/pkg/gomail"
+
 	"github.com/Neroframe/AuthService/config"
 	"github.com/Neroframe/AuthService/internal/adapters/bcrypt"
+	"github.com/Neroframe/AuthService/internal/adapters/gomail"
 	grpcadapter "github.com/Neroframe/AuthService/internal/adapters/grpc"
 	"github.com/Neroframe/AuthService/internal/adapters/grpc/middleware"
 	mongoadapter "github.com/Neroframe/AuthService/internal/adapters/mongo"
@@ -35,9 +39,15 @@ type App struct {
 	grpc       *grpcpkg.Server
 	authClient authpb.AuthServiceClient
 	authConn   *grpc.ClientConn
+
+	emailSender *gomailpkg.Sender
 }
 
 func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, error) {
+	if cfg.Server.Addr == "" {
+		return nil, errors.New("Server address empty")
+	}
+
 	log.Info("initializing infra clients")
 
 	// MongoDB
@@ -78,8 +88,12 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	jwtSvc := token.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiration)
 	hasher := bcrypt.NewHasher()
 
+	// Ini email sender
+	gomailSender := gomailpkg.New(gomailpkg.Config(cfg.Gomail))
+	emailSender := gomail.NewGomailService(gomailSender)
+
 	// Usecase
-	userUC := usecase.NewUserUsecase(repo, hasher, publisher, redisCache, log, jwtSvc)
+	userUC := usecase.NewUserUsecase(repo, hasher, publisher, redisCache, log, jwtSvc, emailSender)
 
 	// gRPC client and clientConn (remove)
 	authClient, authConn, err := grpcadapter.NewAuthClient(cfg)
@@ -87,32 +101,35 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 		return nil, fmt.Errorf("grpc AuthClient init: %w", err)
 	}
 
-	// Validates token and injects user info into ctx
+	// Init gRPC interceptor
 	authInt := middleware.NewAuthInterceptor(
 		// set public routes
 		[]string{
 			"/auth.AuthService/Login",
 			"/auth.AuthService/Register",
 			"/auth.AuthService/ValidateToken",
+			"/auth.AuthService/RestPassword",
 			// "/auth.AuthService/GetUserByID" - admin only route
 		},
 		authClient,
 		jwtSvc,
 		log,
 	)
-	unaryInterceptors := []grpc.UnaryServerInterceptor{
-		authInt.UnaryLoggingInterceptor(),
-		authInt.UnaryAuthentificate(),
-	}
 
-	// gRPC server setup
-	authHandler := grpcadapter.NewHandler(userUC, log) // handler implements server logic
+	// Create gRPC handler that implements server logic
+	authHandler := grpcadapter.NewHandler(userUC, log)
+	// Create and configure gRPC server
 	srv, err := grpcpkg.New(
 		grpcpkg.Config(cfg.Server),
+		// Attach register AuthService func
 		func(s *grpc.Server) {
-			authpb.RegisterAuthServiceServer(s, authHandler) // register AuthService in a gRPC server
+			authpb.RegisterAuthServiceServer(s, authHandler)
 		},
-		unaryInterceptors,
+		// Attach unary interceptors for logging and authentication
+		[]grpc.UnaryServerInterceptor{
+			authInt.UnaryLoggingInterceptor(),
+			authInt.UnaryAuthentificate(),
+		},
 	)
 	if err != nil {
 		mongoClient.Disconnect(ctx)
@@ -123,14 +140,18 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	}
 
 	return &App{
-		cfg:        cfg,
-		log:        log,
-		mongo:      mongoClient,
-		nats:       natsClient,
-		redis:      redisClient,
-		grpc:       srv,
+		cfg: cfg,
+		log: log,
+
+		mongo: mongoClient,
+		nats:  natsClient,
+		redis: redisClient,
+		grpc:  srv,
+
 		authClient: authClient,
 		authConn:   authConn,
+
+		emailSender: gomailSender,
 	}, nil
 }
 
@@ -138,53 +159,53 @@ func (a *App) Run(ctx context.Context) error {
 	// Share one ctx (error group)
 	g, ctx := errgroup.WithContext(ctx)
 
-	// gRPC
+	// Start the gRPC server
 	g.Go(func() error {
 		a.log.Info("starting gRPC", "addr", a.cfg.Server.Addr)
 		return a.grpc.Run(ctx)
 	})
 
-	// Mongo health
+	// Start Mongo health check
 	g.Go(func() error {
 		return healthLoop(ctx, a.mongo.HealthCheck, a.cfg.Mongo.SocketTimeout)
 	})
 
-	// NATS health
+	// Start NATS health check
 	g.Go(func() error {
 		return healthLoop(ctx, a.nats.HealthCheck, 3*time.Second)
 	})
 
-	// Redis health
+	// Start Redis health check
 	g.Go(func() error {
 		return healthLoop(ctx, a.redis.HealthCheck, 3*time.Second)
 	})
 
-	// returns the first error
+	// Wait for all goroutines to finish or return the first encountered error
 	return g.Wait()
 }
 
 func (a *App) Shutdown(ctx context.Context) error {
 	var shutdownErr error
 
-	a.log.Info("shutting down gRPC")
+	a.log.Info("Gracefully stoping gRPC server")
 	a.grpc.Stop()
 
-	a.log.Info("closing AuthService gRPC connection")
+	a.log.Info("Closing gRPC client connection to AuthService")
 	if err := a.authConn.Close(); err != nil {
-		a.log.Error("failed to close authConn", "err", err)
-		shutdownErr = err
+		a.log.Error("Failed to close authConn", "err", err)
+		shutdownErr = errors.Join(shutdownErr, err)
 	}
 
-	a.log.Info("disconnecting NATS")
+	a.log.Info("Disconnecting from NATS server")
 	a.nats.Disconnect()
 
-	a.log.Info("closing Redis")
+	a.log.Info("Closing Redis conn")
 	a.redis.Close()
 
-	a.log.Info("disconnecting Mongo")
+	a.log.Info("Disconnecting from Mongo")
 	if err := a.mongo.Disconnect(ctx); err != nil {
-		a.log.Error("failed to disconnect Mongo", "err", err)
-		shutdownErr = err
+		a.log.Error("Failed to disconnect from Mongo", "err", err)
+		shutdownErr = errors.Join(shutdownErr, err)
 	}
 
 	return shutdownErr

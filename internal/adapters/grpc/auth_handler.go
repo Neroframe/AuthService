@@ -67,7 +67,7 @@ func (h *AuthHandler) Login(ctx context.Context, req *authpb.LoginRequest) (*aut
 
 	return &authpb.LoginResponse{
 		AccessToken:  token,
-		RefreshToken: "", // TODO
+		RefreshToken: "", // TODO ?
 		ExpiresAt:    payload.ExpiresAt,
 		TokenType:    "Bearer",
 	}, nil
