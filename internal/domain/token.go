@@ -42,9 +42,10 @@ type PasswordResetCode struct {
 	ExpiresAt time.Time `bson:"expires_at"`
 }
 
-// Returns true if the code has expired
-func (v *VerificationCode) IsExpired() bool {
-	return time.Now().After(v.ExpiresAt)
+type CodeCache interface {
+	Set(ctx context.Context, code *VerificationCode) error
+	Get(ctx context.Context, userID string) (*VerificationCode, error)
+	Delete(ctx context.Context, userID string) error
 }
 
 // Creates a verification code with TTL
@@ -64,4 +65,9 @@ func NewPasswordResetCode(userID, code string, ttl time.Duration) *PasswordReset
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(ttl),
 	}
+}
+
+// Returns true if the code has expired
+func (v *VerificationCode) IsExpired() bool {
+	return time.Now().After(v.ExpiresAt)
 }

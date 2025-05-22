@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -19,24 +18,32 @@ import (
 const UserCtxKey string = "userClaims"
 
 type AuthInterceptor struct {
-	skipMethods map[string]struct{}
-	authClient  authpb.AuthServiceClient
-	jwtSvc      domain.JWTService
-	log         *logger.Logger
+	publicMethods map[string]struct{}
+	permissions   map[string][]domain.Role
+	authClient    authpb.AuthServiceClient
+	jwtSvc        domain.JWTService
+	log           *logger.Logger
 }
 
-func NewAuthInterceptor(skipMethods []string, client authpb.AuthServiceClient, jwt domain.JWTService, log *logger.Logger) *AuthInterceptor {
-	// skipMethods is a slice of RPC method names to bypass (e.g. Login, Register)
-	sm := make(map[string]struct{}, len(skipMethods))
-	for _, m := range skipMethods {
-		sm[m] = struct{}{}
+func NewAuthInterceptor(
+	publicMethods []string,
+	permissions map[string][]domain.Role,
+	client authpb.AuthServiceClient,
+	jwt domain.JWTService,
+	log *logger.Logger,
+) *AuthInterceptor {
+	// build a set for quick public-check
+	publicSet := make(map[string]struct{}, len(publicMethods))
+	for _, m := range publicMethods {
+		publicSet[m] = struct{}{}
 	}
 
 	return &AuthInterceptor{
-		skipMethods: sm,
-		authClient:  client,
-		jwtSvc:      jwt,
-		log:         log,
+		publicMethods: publicSet, // store the map
+		permissions:   permissions,
+		authClient:    client,
+		jwtSvc:        jwt,
+		log:           log,
 	}
 }
 
@@ -48,8 +55,8 @@ func (i *AuthInterceptor) UnaryAuthentificate() grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (any, error) {
-		// Skip public methods
-		if _, ok := i.skipMethods[info.FullMethod]; ok {
+		// Skip public
+		if _, ok := i.publicMethods[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
 
@@ -72,9 +79,23 @@ func (i *AuthInterceptor) UnaryAuthentificate() grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
+		// Role check
+		if allowedRoles, ok := i.permissions[info.FullMethod]; ok {
+			var found bool
+			for _, role := range allowedRoles {
+				if role == claims.Role {
+					found = true
+					break
+				}
+			}
+			if !found {
+				i.log.Warn("role is not authorized to pass", "role", claims.Role)
+				return nil, status.Error(codes.PermissionDenied, "role not authorized to pass")
+			}
+		}
+
 		// Inject token payload into ctx
 		ctx = context.WithValue(ctx, UserCtxKey, claims)
-		fmt.Println("AUTH SUCCESS")
 		return handler(ctx, req)
 	}
 }
@@ -105,14 +126,14 @@ func (i *AuthInterceptor) UnaryLoggingInterceptor() grpc.UnaryServerInterceptor 
 		// Log duration, and returning value or err
 		duration := time.Since(start)
 		if err != nil {
-			i.log.Error("gRPC request failed",
+			i.log.Error("gRPC request FAILED",
 				"method", info.FullMethod,
 				"request_id", reqID,
 				"duration", duration,
 				"error", err,
 			)
 		} else {
-			i.log.Error("gRPC request failed",
+			i.log.Info("gRPC request SUCCEDED",
 				"method", info.FullMethod,
 				"request_id", reqID,
 				"duration", duration,

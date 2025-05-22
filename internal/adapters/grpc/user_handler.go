@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Neroframe/AuthService/internal/adapters/grpc/middleware"
 	"github.com/Neroframe/AuthService/internal/domain"
 	authpb "github.com/Neroframe/AuthService/proto"
 	"google.golang.org/grpc/codes"
@@ -12,19 +11,7 @@ import (
 )
 
 func (h *AuthHandler) GetUserByID(ctx context.Context, req *authpb.GetUserByIDRequest) (*authpb.GetUserByIDResponse, error) {
-	// Admin only
-	val := ctx.Value(middleware.UserCtxKey)
-	claims, ok := val.(*domain.TokenPayload)
-	if !ok || claims == nil {
-		return nil, status.Error(codes.Unauthenticated, "invalid context claims")
-	}
-
-	if claims.Role != domain.ADMIN {
-		return nil, status.Error(codes.PermissionDenied, "admin access required")
-	}
-
-	h.log.Info("before getuserbyid", "role", claims.Role)
-
+	// Get user
 	usr, err := h.uc.GetUserByID(ctx, req.UserId)
 	if err != nil {
 		h.log.Error("failed to find by ID", "err", err)
@@ -46,14 +33,14 @@ func (h *AuthHandler) GetUserByID(ctx context.Context, req *authpb.GetUserByIDRe
 }
 
 func (h *AuthHandler) UpdateUserProfile(ctx context.Context, req *authpb.UpdateUserRequest) (*authpb.UpdateUserResponse, error) {
-	user := &domain.User{
-		ID:       req.GetUserId(),
-		Email:    req.GetEmail(),
-		Username: req.GetUsername(),
-		Phone:    req.GetPhone(),
+	params := domain.UpdateUserProfileParams{
+		ID:       req.UserId,
+		Email:    req.Email,
+		Username: req.Username,
+		Phone:    req.Phone,
 	}
 
-	usr, err := h.uc.UpdateProfile(ctx, user)
+	usr, err := h.uc.UpdateProfile(ctx, params)
 	if err != nil {
 		h.log.Error("failed to update user profile", "err", err)
 		return nil, status.Error(codes.Internal, "failed to update user")
@@ -73,27 +60,6 @@ func (h *AuthHandler) UpdateUserProfile(ctx context.Context, req *authpb.UpdateU
 	}, nil
 }
 
-func (h *AuthHandler) SendVerificationCode(ctx context.Context, req *authpb.VerificationCodeRequest) (*authpb.VerificationCodeResponse, error) {
-	// generate code
-	// code := fmt.Sprintf("%06d", rand.Intn(1000000)) // 6-digit code
-
-	// save to redis
-
-	// send code to user email
-	return nil, nil
-}
-
-func (h *AuthHandler) VerifyAccount(ctx context.Context, req *authpb.VerifyAccountRequest) (*authpb.VerifyAccountResponse, error) {
-	// fetch code from redis:
-
-	// does code exist
-	// has it expired
-	// codes match?
-
-	// verify code or status.Error(codes.InvalidArgument, "invalid or expired code")
-	return nil, nil
-}
-
 func (h *AuthHandler) ChangePassword(ctx context.Context, req *authpb.ChangePasswordRequest) (*authpb.ChangePasswordResponse, error) {
 	err := h.uc.ChangePassword(ctx, req.UserId, req.OldPassword, req.NewPassword)
 	if err != nil {
@@ -107,10 +73,54 @@ func (h *AuthHandler) ChangePassword(ctx context.Context, req *authpb.ChangePass
 	}, nil
 }
 
-func (h *AuthHandler) ResetPassword(ctx context.Context, req *authpb.ResetPasswordRequest) (*authpb.ResetPasswordResponse, error) {
-	err := h.uc.SendVerificationCode(ctx, req.GetEmail(), "reset_password")
+func (h *AuthHandler) SendVerificationCode(ctx context.Context, req *authpb.VerificationCodeRequest) (*authpb.VerificationCodeResponse, error) {
+	// Send verification code to email
+	err := h.uc.SendVerificationCode(ctx, req.Email, domain.PurposeEmailVerification)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to send reset code: %v", err)
+		h.log.Error("failed to send verification code", "err", err)
+		return nil, status.Error(codes.Internal, "failed to send verification code")
+	}
+
+	return &authpb.VerificationCodeResponse{
+		Success: true,
+		Message: "Verification code sent to email",
+	}, nil
+}
+
+func (h *AuthHandler) VerifyAccount(ctx context.Context, req *authpb.VerifyAccountRequest) (*authpb.VerifyAccountResponse, error) {
+	// Validate code and purpose
+	if err := h.uc.VerifyCode(ctx, req.Email, req.Code, domain.PurposeEmailVerification); err != nil {
+		if errors.Is(err, domain.ErrCodeExpired) {
+			return nil, status.Error(codes.InvalidArgument, "expired code")
+		}
+		if errors.Is(err, domain.ErrCodeInvalid) {
+			return nil, status.Error(codes.InvalidArgument, "invalid code")
+		}
+		h.log.Error("Failed to verify code", "err", err)
+		return nil, status.Errorf(codes.Internal, "failed to verify code: %v", err)
+	}
+
+	// Fetch user
+	usr, err := h.uc.GetUserByEmail(ctx, req.Email)
+	if err != nil {
+		h.log.Error("Failed to get user", "err", err)
+		return nil, status.Errorf(codes.Internal, "failed to fetch user detail: %v", err)
+	}
+
+	if err := h.uc.VerifyAccount(ctx, usr.ID); err != nil {
+		h.log.Error("Failed to verify user", "err", err)
+		return nil, status.Error(codes.Internal, "failed to verify user")
+	}
+
+	return nil, nil
+}
+
+func (h *AuthHandler) ResetPassword(ctx context.Context, req *authpb.ResetPasswordRequest) (*authpb.ResetPasswordResponse, error) {
+	// Send reset code to email
+	err := h.uc.SendVerificationCode(ctx, req.GetEmail(), domain.PurposeResetPassword)
+	if err != nil {
+		h.log.Error("failed to send reset code", "err", err)
+		return nil, status.Error(codes.Internal, "failed to send reset code")
 	}
 
 	return &authpb.ResetPasswordResponse{
@@ -121,17 +131,28 @@ func (h *AuthHandler) ResetPassword(ctx context.Context, req *authpb.ResetPasswo
 
 func (h *AuthHandler) ConfirmResetPassword(ctx context.Context, req *authpb.ConfirmResetRequest) (*authpb.ConfirmResetResponse, error) {
 	// Validate code and purpose
-	if err := h.uc.VerifyCode(ctx, req.GetEmail(), req.GetCode(), "reset_password"); err != nil {
-		if errors.Is(err, domain.ErrCodeInvalid) || errors.Is(err, domain.ErrCodeExpired) {
-			return nil, status.Error(codes.InvalidArgument, "invalid or expired code")
+	if err := h.uc.VerifyCode(ctx, req.Email, req.Code, domain.PurposeResetPassword); err != nil {
+		if errors.Is(err, domain.ErrCodeExpired) {
+			return nil, status.Error(codes.InvalidArgument, "expired code")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to verify code: %v", err)
+		if errors.Is(err, domain.ErrCodeInvalid) {
+			return nil, status.Error(codes.InvalidArgument, "invalid code")
+		}
+		h.log.Error("Failed to verify code", "err", err)
+		return nil, status.Error(codes.Internal, "failed to verify code")
 	}
 
-	// Update password
-	err := h.uc.ConfirmResetPassword(ctx, req.GetEmail(), req.GetCode(), req.GetNewPassword())
+	// Fetch user
+	usr, err := h.uc.GetUserByEmail(ctx, req.Email)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to reset password: %v", err)
+		h.log.Error("Failed to get user", "err", err)
+		return nil, status.Error(codes.Internal, "failed to fetch user detail")
+	}
+
+	// Change password
+	if err := h.uc.ChangePassword(ctx, usr.ID, usr.Password, req.NewPassword); err != nil {
+		h.log.Error("Failed to change password", "err", err)
+		return nil, status.Error(codes.Internal, "failed to reset password")
 	}
 
 	return &authpb.ConfirmResetResponse{

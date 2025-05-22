@@ -17,6 +17,7 @@ import (
 	natsadapter "github.com/Neroframe/AuthService/internal/adapters/nats"
 	redisadapter "github.com/Neroframe/AuthService/internal/adapters/redis"
 	"github.com/Neroframe/AuthService/internal/adapters/token"
+	"github.com/Neroframe/AuthService/internal/domain"
 	"github.com/Neroframe/AuthService/internal/usecase"
 	grpcpkg "github.com/Neroframe/AuthService/pkg/grpc"
 	"github.com/Neroframe/AuthService/pkg/logger"
@@ -82,7 +83,7 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 		return nil, fmt.Errorf("mongo repo init: %w", err)
 	}
 	publisher := natsadapter.NewAuthPublisher(natsClient)
-	redisCache := redisadapter.NewUserCache(redisClient.Client, cfg.Redis.DialTimeout)
+	redisCache := redisadapter.NewCodeCache(redisClient.Client, cfg.Redis.DialTimeout)
 
 	// jwt and bcrypt helper services
 	jwtSvc := token.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiration)
@@ -103,13 +104,19 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 
 	// Init gRPC interceptor
 	authInt := middleware.NewAuthInterceptor(
-		// set public routes
+		// public
 		[]string{
 			"/auth.AuthService/Login",
 			"/auth.AuthService/Register",
 			"/auth.AuthService/ValidateToken",
-			"/auth.AuthService/RestPassword",
-			// "/auth.AuthService/GetUserByID" - admin only route
+			"/auth.AuthService/ResetPassword",
+			"/auth.AuthService/ConfirmResetPassword",
+		},
+		// private role based
+		map[string][]domain.Role{
+			"/auth.AuthService/ChangePassword":    {domain.ADMIN, domain.TEACHER, domain.STUDENT},
+			"/auth.AuthService/GetUserByID":       {domain.ADMIN, domain.TEACHER, domain.STUDENT},
+			"/auth.AuthService/UpdateUserProfile": {domain.ADMIN, domain.TEACHER},
 		},
 		authClient,
 		jwtSvc,
@@ -180,7 +187,7 @@ func (a *App) Run(ctx context.Context) error {
 		return healthLoop(ctx, a.redis.HealthCheck, 3*time.Second)
 	})
 
-	// Wait for all goroutines to finish or return the first encountered error
+	// return the first encountered error
 	return g.Wait()
 }
 

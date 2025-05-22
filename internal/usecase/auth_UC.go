@@ -17,7 +17,7 @@ type userUsecase struct {
 	repo        repository.UserRepository
 	hasher      domain.PasswordHasher
 	publisher   domain.UserEventPublisher
-	cache       domain.UserCache
+	cache       domain.CodeCache
 	jwt         domain.JWTService
 	emailSender domain.EmailSender
 }
@@ -26,7 +26,7 @@ func NewUserUsecase(
 	r repository.UserRepository,
 	h domain.PasswordHasher,
 	p domain.UserEventPublisher,
-	c domain.UserCache,
+	c domain.CodeCache,
 	log *logger.Logger,
 	jwtSvc domain.JWTService,
 	emailSender domain.EmailSender,
@@ -66,7 +66,7 @@ func (u *userUsecase) Register(ctx context.Context, email, password string, role
 }
 
 func (u *userUsecase) Login(ctx context.Context, email, password string) (accessToken string, payload *domain.TokenPayload, err error) {
-	user, err := u.repo.FindByEmail(ctx, email)
+	user, err := u.repo.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return "", nil, domain.ErrUserNotFound
@@ -104,7 +104,7 @@ func (u *userUsecase) ValidateToken(ctx context.Context, jwt string) (*domain.To
 
 func (u *userUsecase) SendVerificationCode(ctx context.Context, email, purpose string) error {
 	// Find user
-	user, err := u.repo.FindByEmail(ctx, email)
+	user, err := u.repo.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return domain.ErrUserNotFound
@@ -125,6 +125,61 @@ func (u *userUsecase) SendVerificationCode(ctx context.Context, email, purpose s
 	// Send email
 	if err := u.emailSender.Send(user.Email, purpose, buildEmailBody(purpose, code)); err != nil {
 		return fmt.Errorf("SendVerificationCode Send: %w", err)
+	}
+
+	return nil
+}
+
+func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string, purpose string) error {
+	// Find user
+	user, err := u.repo.GetByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return domain.ErrUserNotFound
+		}
+		return fmt.Errorf("VerifyCode FindByEmail: %w", err)
+	}
+
+	// Find code
+	cachedCode, err := u.cache.Get(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("VerifyCode cache.Get: %w", err)
+	}
+
+	// Validate
+	if cachedCode.Code != code {
+		return domain.ErrCodeInvalid
+	}
+
+	if time.Now().After(cachedCode.ExpiresAt) {
+		return domain.ErrCodeExpired
+	}
+
+	if cachedCode.Purpose != purpose {
+		return domain.ErrInvalidPurpose
+	}
+
+	// Purpose specific actions
+	switch purpose {
+	case domain.PurposeEmailVerification:
+		// Update user as verified
+		user.Verified = true
+		if _, err := u.repo.Update(ctx, user, "verified", "updated_at"); err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return domain.ErrUserNotFound
+			}
+			return fmt.Errorf("VerifyCode email Update: %w", err)
+		}
+	case domain.PurposeResetPassword:
+		// wait for ConfirmResetPassword to set new password
+	default:
+		return domain.ErrInvalidPurpose
+	}
+
+	// Remove from cache
+	err = u.cache.Delete(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("VerifyCode cache.Delete: %w", err) // TODO: handle or fire-and-forget
 	}
 
 	return nil
@@ -157,59 +212,4 @@ func buildEmailBody(purpose, code string) string {
 	default:
 		return "<html><body><p>Invalid email purpose.</p></body></html>"
 	}
-}
-
-func (u *userUsecase) VerifyCode(ctx context.Context, email string, code string, purpose string) error {
-	// Find user
-	user, err := u.repo.FindByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return domain.ErrUserNotFound
-		}
-		return fmt.Errorf("VerifyCode FindByEmail: %w", err)
-	}
-
-	// Find code
-	cachedCode, err := u.cache.Get(ctx, user.ID)
-	if err != nil {
-		return fmt.Errorf("VerifyCode cache.Get: %w", err)
-	}
-
-	// Validate
-	if cachedCode.Code != code {
-		return domain.ErrCodeInvalid
-	}
-
-	if time.Now().After(cachedCode.ExpiresAt) {
-		return domain.ErrCodeExpired
-	}
-
-	if cachedCode.Purpose != purpose {
-		return domain.ErrInvalidPurpose
-	}
-
-	// Purpose specific actions
-	switch purpose {
-	case domain.PurposeEmailVerification:
-		// Update user as verified
-		user.Verify()
-		if _, err := u.repo.Update(ctx, user, "verified"); err != nil {
-			if errors.Is(err, repository.ErrNotFound) {
-				return domain.ErrUserNotFound
-			}
-			return fmt.Errorf("VerifyCode email Update: %w", err)
-		}
-	case domain.PurposeResetPassword:
-		// wait for ConfirmResetPassword to set new password
-	default:
-		return domain.ErrInvalidPurpose
-	}
-
-	// Remove from cache
-	err = u.cache.Delete(ctx, user.ID)
-	if err != nil {
-		return fmt.Errorf("VerifyCode cache.Delete: %w", err) // TODO: handle or fire-and-forget
-	}
-
-	return nil
 }

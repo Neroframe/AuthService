@@ -18,9 +18,9 @@ type AuthCache struct {
 	ttl    time.Duration
 }
 
-var _ domain.UserCache = (*AuthCache)(nil)
+var _ domain.CodeCache = (*AuthCache)(nil)
 
-func NewUserCache(client *redisv9.Client, ttl time.Duration) *AuthCache {
+func NewCodeCache(client *redisv9.Client, ttl time.Duration) *AuthCache {
 	return &AuthCache{client: client, ttl: ttl}
 }
 

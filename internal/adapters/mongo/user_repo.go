@@ -40,7 +40,7 @@ func (r *UserRepository) Create(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
-func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var u domain.User
 
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&u)
@@ -54,7 +54,7 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*domain
 	return &u, nil
 }
 
-func (r *UserRepository) FindByID(ctx context.Context, id string) (*domain.User, error) {
+func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
 	var u domain.User
 
 	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&u)
@@ -70,15 +70,15 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*domain.User,
 
 func (r *UserRepository) Update(ctx context.Context, u *domain.User, fields ...string) (*domain.User, error) {
 	if len(fields) == 0 {
-		return nil, fmt.Errorf("repo Update: no fields specified for update")
+		return nil, repository.ErrNothingToUpdate
 	}
 
 	filter := bson.M{"_id": u.ID}
 	update := buildUpdateFields(u, fields...)
 
 	opts := options.FindOneAndUpdate().
-	SetReturnDocument(options.After). // to decode result
-	SetUpsert(false) // no insert 
+		SetReturnDocument(options.After). // to decode result
+		SetUpsert(false)                  // no insert
 
 	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(u)
 	if err != nil {

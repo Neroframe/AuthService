@@ -12,6 +12,7 @@ enum Role {
 }
 
 service AuthService {
+    // Auth
     rpc Login(LoginRequest) returns (LoginResponse);
     rpc Register(RegisterRequest) returns (RegisterResponse); 
 
@@ -40,7 +41,7 @@ message LoginRequest {
 
 message LoginResponse {
     string access_token = 1;
-    string refresh_token = 2;
+    string refresh_token = 2; // TODO
     int64 expires_at = 3; // Unix timestamp
     string token_type = 4; // e.g. "Bearer"
 }
@@ -54,9 +55,10 @@ message RegisterRequest {
 message RegisterResponse {
     bool success = 1;
     string message = 2;
-    string access_token = 3; 
+    string access_token = 3; // TODO
 }
 
+  // Token validation
 message ValidateTokenRequest {
     string jwt = 1; 
 }

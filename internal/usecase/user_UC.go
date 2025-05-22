@@ -4,15 +4,40 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
-	"time"
 
+	"github.com/Neroframe/AuthService/internal/adapters/grpc/middleware"
 	"github.com/Neroframe/AuthService/internal/domain"
 	"github.com/Neroframe/AuthService/internal/repository"
 )
 
 func (u *userUsecase) GetUserByID(ctx context.Context, userID string) (*domain.User, error) {
-	user, err := u.repo.FindByID(ctx, userID)
+	claims := ctx.Value(middleware.UserCtxKey).(*domain.TokenPayload)
+
+	target, err := u.repo.GetByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, domain.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("UpdateProfile fetch: %w", err)
+	}
+
+	// Check for role permission
+	switch claims.Role {
+	case domain.ADMIN:
+		// allowed
+	case domain.TEACHER: // only itself and students
+		if target.Role == domain.ADMIN || (target.Role == domain.TEACHER && target.ID != userID) {
+			return nil, domain.ErrPermissionDenied
+		}
+	case domain.STUDENT: // only itself
+		if target.Role == domain.ADMIN || target.Role == domain.TEACHER || (target.Role == domain.STUDENT && target.ID != userID) {
+			return nil, domain.ErrPermissionDenied
+		}
+	default:
+		return nil, domain.ErrPermissionDenied
+	}
+
+	usr, err := u.repo.GetByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, domain.ErrUserNotFound
@@ -20,11 +45,55 @@ func (u *userUsecase) GetUserByID(ctx context.Context, userID string) (*domain.U
 		return nil, fmt.Errorf("GetUserByID: %w", err)
 	}
 
-	return user, nil
+	return usr, nil
 }
 
-func (u *userUsecase) UpdateProfile(ctx context.Context, user *domain.User) (*domain.User, error) {
-	updated, err := u.repo.Update(ctx, user, "email", "username", "phone", "updated_at")
+func (u *userUsecase) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
+	usr, err := u.repo.GetByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, domain.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("GetUserByEmail: %w", err)
+	}
+
+	return usr, nil
+}
+
+func (u *userUsecase) UpdateProfile(ctx context.Context, p domain.UpdateUserProfileParams) (*domain.User, error) {
+	claims := ctx.Value(middleware.UserCtxKey).(*domain.TokenPayload)
+
+	target, err := u.repo.GetByID(ctx, p.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, domain.ErrUserNotFound
+		}
+		return nil, fmt.Errorf("UpdateProfile fetch: %w", err)
+	}
+
+	// Check for role permission
+	switch claims.Role {
+	case domain.ADMIN:
+		// allowed
+	case domain.TEACHER: // only itself and students
+		if target.Role == domain.ADMIN || (target.Role == domain.TEACHER && target.ID != p.ID) {
+			return nil, domain.ErrPermissionDenied
+		}
+	case domain.STUDENT: // only itself
+		if target.Role == domain.ADMIN || target.Role == domain.TEACHER || (target.Role == domain.STUDENT && target.ID != p.ID) {
+			return nil, domain.ErrPermissionDenied
+		}
+	default:
+		return nil, domain.ErrPermissionDenied
+	}
+
+	// Set new values
+	target.Email = p.Email
+	target.Username = p.Username
+	target.Phone = p.Phone
+
+	// Update user profile
+	updated, err := u.repo.Update(ctx, target, "email", "username", "phone", "updated_at")
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, domain.ErrUserNotFound
@@ -35,12 +104,37 @@ func (u *userUsecase) UpdateProfile(ctx context.Context, user *domain.User) (*do
 	return updated, nil
 }
 
+func (u *userUsecase) VerifyAccount(ctx context.Context, userID string) error {
+	// Get user
+	usr, err := u.repo.GetByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return domain.ErrUserNotFound
+		}
+		return fmt.Errorf("VerifyAccount: %w", err)
+	}
+
+	// Update user as verified
+	usr.Verified = true
+	if _, err := u.repo.Update(ctx, usr, "verified", "updated_at"); err != nil {
+		return fmt.Errorf("VerifyAccount Update: %w", err)
+	}
+
+	return nil
+}
+
 func (u *userUsecase) ChangePassword(ctx context.Context, userID, oldPw, newPw string) error {
-	if oldPw == newPw {
+	hashed, err := u.hasher.Hash(ctx, newPw)
+	if err != nil {
+		return fmt.Errorf("ChangePassword Hash: %w", err)
+	}
+
+	if oldPw == hashed {
 		return domain.ErrPasswordUnchanged
 	}
 
-	user, err := u.repo.FindByID(ctx, userID)
+	// Get user
+	usr, err := u.repo.GetByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return domain.ErrUserNotFound
@@ -48,7 +142,9 @@ func (u *userUsecase) ChangePassword(ctx context.Context, userID, oldPw, newPw s
 		return fmt.Errorf("ChangePassword FindByID: %w", err)
 	}
 
-	_, err = u.repo.Update(ctx, user, "password")
+	// Update password
+	usr.Password = hashed
+	_, err = u.repo.Update(ctx, usr, "password", "updated_at")
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return domain.ErrUserNotFound
@@ -58,63 +154,5 @@ func (u *userUsecase) ChangePassword(ctx context.Context, userID, oldPw, newPw s
 
 	return nil
 }
-func (u *userUsecase) StartResetPassword(ctx context.Context, email string) error {
-	// Fetch user
-	user, err := u.repo.FindByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return domain.ErrUserNotFound
-		}
-		return fmt.Errorf("StartResetPassword FindByEmail: %w", err)
-	}
 
-	// Generate code
-	c := fmt.Sprintf("%06d", rand.Intn(1000000))
-	code := domain.NewVerificationCode(user.ID, c, "reset_password", 10*time.Minute)
 
-	// Cache it
-	if err := u.cache.Set(ctx, code); err != nil {
-		return fmt.Errorf("StartResetPassword cache.Set: %w", err)
-	}
-
-	// TODO: email
-	fmt.Printf("[RESET] Code sent to %s: %s\n", email, code.Code)
-
-	return nil
-}
-func (u *userUsecase) ConfirmResetPassword(ctx context.Context, email, code, newPw string) error {
-	// Verify the code
-	if err := u.VerifyCode(ctx, email, code, "reset_password"); err != nil {
-		return fmt.Errorf("ConfirmResetPassword VerifyCode: %w", err)
-	}
-
-	// Fetch user
-	user, err := u.repo.FindByEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return domain.ErrUserNotFound
-		}
-		return fmt.Errorf("ConfirmResetPassword FindByEmail: %w", err)
-	}
-
-	// Hash new password
-	hash, err := u.hasher.Hash(ctx, newPw)
-	if err != nil {
-		return fmt.Errorf("ConfirmResetPassword Hash: %w", err)
-	}
-
-	// Update password
-	user.Password = hash
-	_, err = u.repo.Update(ctx, user, "password")
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return domain.ErrUserNotFound
-		}
-		return fmt.Errorf("ConfirmResetPassword Update: %w", err)
-	}
-
-	// Remove the code from Redis
-	_ = u.cache.Delete(ctx, user.ID)
-
-	return nil
-}

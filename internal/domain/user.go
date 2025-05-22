@@ -24,6 +24,8 @@ var (
 	ErrUserNotFound          = errors.New("user not found")
 	ErrPasswordUnchanged     = errors.New("password unchanged")
 	ErrInvalidCredentials    = errors.New("invalid credentials")
+	ErrInvalidArgument       = errors.New("must specify either ID or Email")
+	ErrPermissionDenied      = errors.New("permission denied")
 
 	// Token errors
 	ErrInvalidToken = errors.New("invalid token")
@@ -35,6 +37,15 @@ var (
 	ErrPasswordResetCodeExpired = errors.New("password reset code expired")
 	ErrPasswordResetCodeInvalid = errors.New("invalid password reset code")
 	ErrInvalidPurpose           = errors.New("invalid code purpose")
+)
+
+type Role string
+
+const (
+	UNSPECIFIED Role = ""
+	ADMIN       Role = "admin"
+	TEACHER     Role = "teacher"
+	STUDENT     Role = "student"
 )
 
 type User struct {
@@ -49,14 +60,12 @@ type User struct {
 	UpdatedAt time.Time `bson:"updated_at"`
 }
 
-type Role string
-
-const (
-	UNSPECIFIED Role = ""
-	ADMIN       Role = "admin"
-	TEACHER     Role = "teacher"
-	STUDENT     Role = "student"
-)
+type UpdateUserProfileParams struct {
+	ID       string
+	Email    string
+	Username string
+	Phone    string
+}
 
 func NewUser(email, hashedPwd string, role Role) *User {
 	return &User{
@@ -69,12 +78,12 @@ func NewUser(email, hashedPwd string, role Role) *User {
 	}
 }
 
-func (u *User) Verify() {
-	if !u.Verified {
-		u.Verified = true
-		u.UpdatedAt = time.Now().UTC()
-	}
-}
+// func (u *User) Verify() {
+// 	if !u.Verified {
+// 		u.Verified = true
+// 		u.UpdatedAt = time.Now().UTC()
+// 	}
+// }
 
 func (r Role) IsValid() bool {
 	switch r {
@@ -83,12 +92,6 @@ func (r Role) IsValid() bool {
 	default:
 		return false
 	}
-}
-
-type UserCache interface {
-	Set(ctx context.Context, code *VerificationCode) error
-	Get(ctx context.Context, userID string) (*VerificationCode, error)
-	Delete(ctx context.Context, userID string) error
 }
 
 type PasswordHasher interface {
