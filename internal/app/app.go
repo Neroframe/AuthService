@@ -85,11 +85,11 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 	publisher := natsadapter.NewAuthPublisher(natsClient)
 	redisCache := redisadapter.NewCodeCache(redisClient.Client, cfg.Redis.DialTimeout)
 
-	// jwt and bcrypt helper services
+	// Init jwt and bcrypt helper services
 	jwtSvc := token.NewJWTService(cfg.JWT.Secret, cfg.JWT.Expiration)
 	hasher := bcrypt.NewHasher()
 
-	// Ini email sender
+	// Init email sender
 	gomailSender := gomailpkg.New(gomailpkg.Config(cfg.Gomail))
 	emailSender := gomail.NewGomailService(gomailSender)
 
@@ -125,6 +125,7 @@ func New(ctx context.Context, cfg *config.Config, log *logger.Logger) (*App, err
 
 	// Create gRPC handler that implements server logic
 	authHandler := grpcadapter.NewHandler(userUC, log)
+
 	// Create and configure gRPC server
 	srv, err := grpcpkg.New(
 		grpcpkg.Config(cfg.Server),

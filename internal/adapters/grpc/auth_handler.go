@@ -33,7 +33,6 @@ func (h *AuthHandler) Register(ctx context.Context, req *authpb.RegisterRequest)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid role")
 	}
-	h.log.Info("role converted", "email", req.Email, "role", role)
 
 	usr, err := h.uc.Register(ctx, req.Email, req.Password, role)
 	if err != nil {

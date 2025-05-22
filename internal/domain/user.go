@@ -8,15 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-//
-
-// Purposes for code verification
-const (
-	PurposeEmailVerification = "email_verification"
-	PurposeResetPassword     = "reset_password"
-)
-
-// Domain errors
 var (
 	// User errors
 	ErrEmailAlreadyExists    = errors.New("email already exists")
@@ -37,6 +28,12 @@ var (
 	ErrPasswordResetCodeExpired = errors.New("password reset code expired")
 	ErrPasswordResetCodeInvalid = errors.New("invalid password reset code")
 	ErrInvalidPurpose           = errors.New("invalid code purpose")
+)
+
+// Purposes for code verification
+const (
+	PurposeEmailVerification = "email_verification"
+	PurposeResetPassword     = "reset_password"
 )
 
 type Role string
@@ -75,22 +72,6 @@ func NewUser(email, hashedPwd string, role Role) *User {
 		Role:      role,
 		Verified:  false,
 		CreatedAt: time.Now().UTC(),
-	}
-}
-
-// func (u *User) Verify() {
-// 	if !u.Verified {
-// 		u.Verified = true
-// 		u.UpdatedAt = time.Now().UTC()
-// 	}
-// }
-
-func (r Role) IsValid() bool {
-	switch r {
-	case ADMIN, TEACHER, STUDENT:
-		return true
-	default:
-		return false
 	}
 }
 
